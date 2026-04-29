@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>血糖血压记录</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">2026 血糖血压</p>
+          <h1>每日分时记录表</h1>
+        </div>
+        <div class="top-actions">
+          <select id="monthSelect" aria-label="选择月份"></select>
+          <input id="dateSearch" type="date" aria-label="按日期筛选">
+          <button id="exportCsv" type="button">导出 CSV</button>
+          <button id="exportXlsx" type="button">导出 XLSX</button>
+          <label class="import-button">
+            导入 XLSX
+            <input id="importXlsx" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          </label>
+        </div>
+      </header>
+
+      <section class="summary-grid" id="summary"></section>
+
+      <section class="toolbar" aria-label="时间段筛选">
+        <button class="segment-button active" type="button" data-segment="all">全部</button>
+        <button class="segment-button" type="button" data-segment="早上">早上</button>
+        <button class="segment-button" type="button" data-segment="中午">中午</button>
+        <button class="segment-button" type="button" data-segment="下午">下午</button>
+        <button class="segment-button" type="button" data-segment="晚上">晚上</button>
+      </section>
+
+      <section class="workbench">
+        <form class="entry-form" id="recordForm">
+          <div class="section-title">
+            <h2>新增记录</h2>
+            <span id="message" role="status"></span>
+          </div>
+          <label>
+            日期
+            <input name="date" type="date" required>
+          </label>
+          <label>
+            时间
+            <input name="time" type="time">
+          </label>
+          <label>
+            时间段
+            <select name="segment">
+              <option>早上</option>
+              <option>中午</option>
+              <option>下午</option>
+              <option>晚上</option>
+            </select>
+          </label>
+          <label>
+            动态血糖
+            <input name="dynamicGlucose" type="number" step="0.1" min="0">
+          </label>
+          <label>
+            扎手指血糖
+            <input name="fingerGlucose" type="number" step="0.1" min="0">
+          </label>
+          <label>
+            收缩压
+            <input name="systolic" type="number" min="40" max="260">
+          </label>
+          <label>
+            舒张压
+            <input name="diastolic" type="number" min="30" max="160">
+          </label>
+          <label>
+            心率
+            <input name="pulse" type="number" min="30" max="220">
+          </label>
+          <label class="wide">
+            备注
+            <input name="note" type="text" maxlength="80">
+          </label>
+          <button class="submit-button" type="submit">保存记录</button>
+        </form>
+
+        <div class="chart-panel">
+          <div class="section-title">
+            <h2>趋势</h2>
+            <span id="rangeLabel"></span>
+          </div>
+          <div class="chart-grid">
+            <div>
+              <p class="chart-name">血糖均值</p>
+              <div id="glucoseChart" class="sparkline"></div>
+            </div>
+            <div>
+              <p class="chart-name">收缩压均值</p>
+              <div id="pressureChart" class="sparkline"></div>
+            </div>
+          </div>
+          <div class="issue-list" id="issues"></div>
+        </div>
+      </section>
+
+      <section class="table-panel">
+        <div class="table-head">
+          <div>日期</div>
+          <div>早上</div>
+          <div>中午</div>
+          <div>下午</div>
+          <div>晚上</div>
+        </div>
+        <div id="dayTable" class="day-table"></div>
+      </section>
+    </main>
+
+    <template id="emptyTemplate">
+      <div class="empty-state">
+        <strong>没有匹配记录</strong>
+        <span>换一个月份或时间段看看。</span>
+      </div>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

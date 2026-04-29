@@ -1,0 +1,9 @@
+data/
+*.exe
+*.csv
+*.xls
+*.xlsx
+*.log
+*.go.*
+tmp/
+coverage.out

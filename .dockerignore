@@ -1,0 +1,11 @@
+.git
+data
+*.exe
+*.csv
+*.xls
+*.xlsx
+*.log
+*.go.*
+tmp
+dist
+coverage.out
