@@ -1,0 +1,12 @@
+services:
+  xueya:
+    image: ghcr.io/czerov/xueya:latest
+    container_name: xueya
+    ports:
+      - "6644:6644"
+    environment:
+      ADDR: ":6644"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    restart: unless-stopped
