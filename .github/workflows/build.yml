@@ -13,6 +13,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE_VERSION: 0.1.0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,4 +42,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ env.IMAGE_VERSION }}
