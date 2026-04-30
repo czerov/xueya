@@ -88,8 +88,8 @@ async function checkAuth() {
 
 function showLogin(data) {
   els.mainApp.style.display = "none";
-  els.loginTitle.textContent = data.has_password ? "登录" : "设置用户名和密码";
-  els.loginHint.textContent = data.has_password ? "请输入用户名和密码" : "首次使用请设置用户名和密码";
+  els.loginTitle.textContent = "登录";
+  els.loginHint.textContent = "请输入用户名和密码";
   els.loginOverlay.style.display = "flex";
 }
 

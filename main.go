@@ -54,6 +54,18 @@ func main() {
 	}
 	cfg.DataPath = dataPath
 
+	if cfg.Password == "" {
+		loginUser := os.Getenv("LOGIN_USER")
+		loginPass := os.Getenv("LOGIN_PASS")
+		if loginUser != "" && loginPass != "" {
+			cfg.Username = loginUser
+			if err := cfg.SetPassword(loginPass); err != nil {
+				log.Fatalf("set password from env: %v", err)
+			}
+			log.Printf("auto-configured user %s from environment", loginUser)
+		}
+	}
+
 	store, err := health.NewStore(dataPath, seed.Records, seed.Issues)
 	if err != nil {
 		log.Fatalf("init store: %v", err)
