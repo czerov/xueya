@@ -1,9 +1,11 @@
 const segmentOrder = ["早上", "中午", "下午", "晚上"];
-const apiBase = "/_xueya";
-const appVersion = "0.1.2";
+const apiBases = ["/_xueya", "/api"];
+let activeApiBase = apiBases[0];
+const appVersion = "0.1.3";
+const requestTimeoutMs = 4500;
 
-function api(url, opts = {}) {
-  url = apiURL(url);
+function api(url, opts = {}, base = activeApiBase) {
+  url = apiURL(url, base);
   opts.credentials = "same-origin";
   try {
     const token = localStorage.getItem("token");
@@ -11,13 +13,20 @@ function api(url, opts = {}) {
       opts.headers = { ...opts.headers, Authorization: "Bearer " + token };
     }
   } catch { /* localStorage unavailable */ }
-  return fetch(url, opts);
+  return fetchWithTimeout(url, opts);
 }
 
-function apiURL(url) {
+function apiURL(url, base = activeApiBase) {
   if (/^https?:\/\//i.test(url)) return url;
   const path = url.startsWith("/api/") ? url.slice(4) : url;
-  return `${apiBase}${path.startsWith("/") ? path : `/${path}`}`;
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function fetchWithTimeout(url, opts = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  return fetch(url, { ...opts, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
 }
 
 async function readJSON(response) {
@@ -28,6 +37,23 @@ async function readJSON(response) {
     const sample = text.replace(/\s+/g, " ").slice(0, 120);
     throw new Error(`接口没有返回 JSON：HTTP ${response.status} ${sample}`);
   }
+}
+
+async function apiJSON(url, opts = {}) {
+  let lastError;
+  const bases = [activeApiBase, ...apiBases.filter((base) => base !== activeApiBase)];
+  for (const base of bases) {
+    try {
+      const response = await api(url, opts, base);
+      const data = await readJSON(response);
+      activeApiBase = base;
+      return { response, data };
+    } catch (error) {
+      lastError = error;
+      console.warn("api fallback:", base, error);
+    }
+  }
+  throw lastError || new Error("无法连接后端接口");
 }
 
 const state = {
@@ -98,8 +124,7 @@ async function checkAuth() {
   if (authBusy) { console.log("checkAuth: busy, skip"); return; }
   authBusy = true;
   try {
-    const resp = await api("/check");
-    const data = await readJSON(resp);
+    const { data } = await apiJSON("/check");
     console.log("checkAuth:", data);
     setBuildVersion(data);
     if (data.authed) {
@@ -110,7 +135,12 @@ async function checkAuth() {
     showLogin(data);
   } catch(e) {
     console.error("checkAuth error:", e);
-    showAuthError(e);
+    showLogin({
+      has_password: true,
+      version: appVersion,
+      warning: "登录状态接口暂时无响应，可直接尝试登录。",
+      error: e?.message || "无法连接后端接口",
+    });
   }
   authBusy = false;
 }
@@ -120,12 +150,12 @@ function showLogin(data) {
   setBuildVersion(data);
   const needsSetup = !data?.has_password;
   els.loginTitle.textContent = needsSetup ? "设置访问密码" : "登录";
-  els.loginHint.textContent = needsSetup ? "首次使用请设置用户名和密码，后续凭此登录" : "请输入用户名和密码";
+  els.loginHint.textContent = data?.warning || (needsSetup ? "首次使用请设置用户名和密码，后续凭此登录" : "请输入用户名和密码");
   els.loginPassword.autocomplete = needsSetup ? "new-password" : "current-password";
   els.loginUsername.disabled = false;
   els.loginPassword.disabled = false;
   els.loginSubmit.disabled = false;
-  els.loginError.textContent = "";
+  els.loginError.textContent = data?.error || "";
   els.loginOverlay.style.display = "flex";
 }
 
@@ -134,9 +164,9 @@ function showAuthError(error) {
   setBuildVersion();
   els.loginTitle.textContent = "后端连接失败";
   els.loginHint.textContent = "请检查容器是否运行最新版本，或打开 /_xueya/version 查看接口状态。";
-  els.loginUsername.disabled = true;
-  els.loginPassword.disabled = true;
-  els.loginSubmit.disabled = true;
+  els.loginUsername.disabled = false;
+  els.loginPassword.disabled = false;
+  els.loginSubmit.disabled = false;
   els.loginError.textContent = error?.message || "无法连接后端接口";
   els.loginOverlay.style.display = "flex";
 }
@@ -223,12 +253,11 @@ async function login(e) {
   els.loginSubmit.textContent = "验证中...";
 
   try {
-    const resp = await api("/login", {
+    const { response: resp, data } = await apiJSON("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    const data = await readJSON(resp);
     console.log("login:", data);
     if (!resp.ok) {
       els.loginError.textContent = data.error || "登录失败";
@@ -252,8 +281,7 @@ async function logout() {
   localStorage.removeItem("token");
   await api("/logout", { method: "POST" });
   els.settingsOverlay.style.display = "none";
-  const resp = await api("/check");
-  const data = await readJSON(resp).catch(() => ({}));
+  const { data } = await apiJSON("/check").catch(() => ({ data: {} }));
   showLogin(data);
 }
 

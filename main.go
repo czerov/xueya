@@ -25,7 +25,7 @@ import (
 var webFiles embed.FS
 
 var (
-	appVersion = "0.1.2"
+	appVersion = "0.1.3"
 	gitCommit  = "dev"
 )
 
@@ -191,9 +191,20 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
-		return
+	formLogin := strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") ||
+		strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data")
+	if formLogin {
+		if err := r.ParseForm(); err != nil {
+			writeError(w, http.StatusBadRequest, "请求表单无效")
+			return
+		}
+		req.Username = r.FormValue("username")
+		req.Password = r.FormValue("password")
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+			return
+		}
 	}
 	if req.Username == "" || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "用户名和密码不能为空")
@@ -234,6 +245,10 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400 * 7,
 	})
+	if formLogin {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"ok":    "true",
 		"token": token,
