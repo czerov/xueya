@@ -9,13 +9,13 @@
   <body>
     <div class="login-overlay" id="loginOverlay">
       <form class="login-card" id="loginForm">
-        <h2 id="loginTitle">设置访问密码</h2>
-        <p id="loginHint">首次使用请设置用户名和密码，后续凭此登录</p>
-        <input id="loginUsername" type="text" placeholder="用户名" required autocomplete="username">
-        <input id="loginPassword" type="password" placeholder="密码" required autocomplete="new-password">
-        <button type="submit" id="loginSubmit">确定</button>
+        <h2 id="loginTitle">正在连接后端</h2>
+        <p id="loginHint">请稍候，正在读取登录状态。</p>
+        <input id="loginUsername" type="text" placeholder="用户名" required autocomplete="username" disabled>
+        <input id="loginPassword" type="password" placeholder="密码" required autocomplete="new-password" disabled>
+        <button type="submit" id="loginSubmit" disabled>确定</button>
         <span id="loginError"></span>
-        <span class="build-version" id="buildVersion">v0.1.1</span>
+        <span class="build-version" id="buildVersion">v0.1.2</span>
       </form>
     </div>
 
@@ -177,6 +177,6 @@
       </div>
     </template>
 
-    <script src="/app.js?v=7"></script>
+    <script src="/app.js?v=8"></script>
   </body>
 </html>

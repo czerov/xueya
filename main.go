@@ -25,7 +25,7 @@ import (
 var webFiles embed.FS
 
 var (
-	appVersion = "0.1.1"
+	appVersion = "0.1.2"
 	gitCommit  = "dev"
 )
 
@@ -105,18 +105,8 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/login", api.login)
-	mux.HandleFunc("/api/logout", api.logout)
-	mux.HandleFunc("/api/check", api.check)
-	mux.HandleFunc("/api/version", api.version)
-	mux.HandleFunc("/api/config", api.auth(api.config))
-	mux.HandleFunc("/api/records", api.auth(api.records))
-	mux.HandleFunc("/api/records.xlsx", api.auth(api.recordsXLSX))
-	mux.HandleFunc("/api/records/", api.auth(api.recordByID))
-	mux.HandleFunc("/api/recognize", api.auth(api.recognize))
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
+	registerAPIRoutes(mux, "/api", api)
+	registerAPIRoutes(mux, "/_xueya", api)
 	mux.Handle("/", noStore(fileServer))
 
 	addr := env("ADDR", ":6644")
@@ -137,6 +127,23 @@ func noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
+	})
+}
+
+func registerAPIRoutes(mux *http.ServeMux, prefix string, api *apiServer) {
+	prefix = strings.TrimRight(prefix, "/")
+	mux.HandleFunc(prefix+"/login", api.login)
+	mux.HandleFunc(prefix+"/logout", api.logout)
+	mux.HandleFunc(prefix+"/check", api.check)
+	mux.HandleFunc(prefix+"/version", api.version)
+	mux.HandleFunc(prefix+"/config", api.auth(api.config))
+	mux.HandleFunc(prefix+"/records", api.auth(api.records))
+	mux.HandleFunc(prefix+"/records.xlsx", api.auth(api.recordsXLSX))
+	mux.HandleFunc(prefix+"/records/", api.auth(api.recordByID))
+	mux.HandleFunc(prefix+"/recognize", api.auth(api.recognize))
+	mux.HandleFunc(prefix+"/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
 	})
 }
 
@@ -455,7 +462,7 @@ func (s *apiServer) recordsXLSX(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Path[len("/api/records/"):]
+	id := recordIDFromPath(r.URL.Path)
 	if id == "" {
 		writeError(w, http.StatusNotFound, "记录不存在")
 		return
@@ -488,6 +495,18 @@ func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
 	}
+}
+
+func recordIDFromPath(path string) string {
+	for _, prefix := range []string{"/api/records/", "/_xueya/records/"} {
+		if strings.HasPrefix(path, prefix) {
+			return strings.TrimSpace(path[len(prefix):])
+		}
+	}
+	if index := strings.LastIndex(path, "/"); index >= 0 && index < len(path)-1 {
+		return strings.TrimSpace(path[index+1:])
+	}
+	return ""
 }
 
 func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
@@ -668,6 +687,7 @@ func extractJSON(s string) string {
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(value); err != nil {

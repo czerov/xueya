@@ -502,6 +502,12 @@ label select {
   cursor: pointer;
 }
 
+.login-card input:disabled,
+.login-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 #loginError,
 #settingsMessage {
   display: block;
@@ -511,6 +517,7 @@ label select {
 
 #loginError {
   color: var(--coral);
+  overflow-wrap: anywhere;
 }
 
 .build-version {

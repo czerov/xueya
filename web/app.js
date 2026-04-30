@@ -1,6 +1,9 @@
 const segmentOrder = ["早上", "中午", "下午", "晚上"];
+const apiBase = "/_xueya";
+const appVersion = "0.1.2";
 
 function api(url, opts = {}) {
+  url = apiURL(url);
   opts.credentials = "same-origin";
   try {
     const token = localStorage.getItem("token");
@@ -9,6 +12,22 @@ function api(url, opts = {}) {
     }
   } catch { /* localStorage unavailable */ }
   return fetch(url, opts);
+}
+
+function apiURL(url) {
+  if (/^https?:\/\//i.test(url)) return url;
+  const path = url.startsWith("/api/") ? url.slice(4) : url;
+  return `${apiBase}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function readJSON(response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    const sample = text.replace(/\s+/g, " ").slice(0, 120);
+    throw new Error(`接口没有返回 JSON：HTTP ${response.status} ${sample}`);
+  }
 }
 
 const state = {
@@ -79,8 +98,8 @@ async function checkAuth() {
   if (authBusy) { console.log("checkAuth: busy, skip"); return; }
   authBusy = true;
   try {
-    const resp = await api("/api/check");
-    const data = await resp.json();
+    const resp = await api("/check");
+    const data = await readJSON(resp);
     console.log("checkAuth:", data);
     setBuildVersion(data);
     if (data.authed) {
@@ -91,7 +110,7 @@ async function checkAuth() {
     showLogin(data);
   } catch(e) {
     console.error("checkAuth error:", e);
-    showLogin({ has_password: false });
+    showAuthError(e);
   }
   authBusy = false;
 }
@@ -103,12 +122,28 @@ function showLogin(data) {
   els.loginTitle.textContent = needsSetup ? "设置访问密码" : "登录";
   els.loginHint.textContent = needsSetup ? "首次使用请设置用户名和密码，后续凭此登录" : "请输入用户名和密码";
   els.loginPassword.autocomplete = needsSetup ? "new-password" : "current-password";
+  els.loginUsername.disabled = false;
+  els.loginPassword.disabled = false;
+  els.loginSubmit.disabled = false;
+  els.loginError.textContent = "";
+  els.loginOverlay.style.display = "flex";
+}
+
+function showAuthError(error) {
+  els.mainApp.style.display = "none";
+  setBuildVersion();
+  els.loginTitle.textContent = "后端连接失败";
+  els.loginHint.textContent = "请检查容器是否运行最新版本，或打开 /_xueya/version 查看接口状态。";
+  els.loginUsername.disabled = true;
+  els.loginPassword.disabled = true;
+  els.loginSubmit.disabled = true;
+  els.loginError.textContent = error?.message || "无法连接后端接口";
   els.loginOverlay.style.display = "flex";
 }
 
 function setBuildVersion(data) {
   if (!els.buildVersion) return;
-  const version = data?.version || "0.1.1";
+  const version = data?.version || appVersion;
   const commit = data?.commit && data.commit !== "dev" ? ` ${data.commit.slice(0, 7)}` : "";
   els.buildVersion.textContent = `v${version}${commit}`;
 }
@@ -188,12 +223,12 @@ async function login(e) {
   els.loginSubmit.textContent = "验证中...";
 
   try {
-    const resp = await fetch("/api/login", {
+    const resp = await api("/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    const data = await resp.json();
+    const data = await readJSON(resp);
     console.log("login:", data);
     if (!resp.ok) {
       els.loginError.textContent = data.error || "登录失败";
@@ -215,18 +250,18 @@ async function login(e) {
 
 async function logout() {
   localStorage.removeItem("token");
-  await fetch("/api/logout", { method: "POST" });
+  await api("/logout", { method: "POST" });
   els.settingsOverlay.style.display = "none";
-  const resp = await fetch("/api/check");
-  const data = await resp.json().catch(() => ({}));
+  const resp = await api("/check");
+  const data = await readJSON(resp).catch(() => ({}));
   showLogin(data);
 }
 
 async function loadConfig() {
   try {
-    const resp = await api("/api/config");
+    const resp = await api("/config");
     if (!resp.ok) return;
-    const cfg = await resp.json();
+    const cfg = await readJSON(resp);
     els.settingsDataPath.value = cfg.data_path || "";
     els.settingsVisionURL.value = cfg.vision_url || "";
     els.settingsVisionKey.value = cfg.vision_key || "";
@@ -249,7 +284,7 @@ async function saveSettings() {
   }
 
   try {
-    const resp = await api("/api/config", {
+    const resp = await api("/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -261,7 +296,7 @@ async function saveSettings() {
         old_password: oldPassword || null,
       }),
     });
-    const data = await resp.json();
+    const data = await readJSON(resp);
     if (!resp.ok) {
       els.settingsMessage.textContent = data.error || "保存失败";
       els.settingsMessage.style.color = "var(--coral)";
@@ -280,13 +315,13 @@ async function saveSettings() {
 
 async function loadRecords() {
   try {
-    const response = await api("/api/records");
+    const response = await api("/records");
     console.log("loadRecords status:", response.status);
     if (!response.ok) {
       if (response.status === 401) { localStorage.removeItem("token"); return toLogin(); }
       return;
     }
-    const data = await response.json();
+    const data = await readJSON(response);
     state.records = data.records || [];
     state.issues = data.issues || [];
     buildMonthOptions();
@@ -482,14 +517,14 @@ async function submitRecord(event) {
   addNumber(record, "pulse", form.get("pulse"));
 
   try {
-    const response = await api("/api/records", {
+    const response = await api("/records", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(record),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: "保存失败" }));
+      const error = await readJSON(response).catch(() => ({ error: "保存失败" }));
       showMessage(error.error || "保存失败", true);
       return;
     }
@@ -506,7 +541,7 @@ async function submitRecord(event) {
 
 async function deleteRecord(id) {
   try {
-    const response = await api(`/api/records/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await api(`/records/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!response.ok) {
       showMessage("删除失败", true);
       return;
@@ -544,7 +579,7 @@ function exportCsv() {
 }
 
 function exportXlsx() {
-  window.location.href = `/api/records.xlsx?${filterParams().toString()}`;
+  window.location.href = `${apiURL("/records.xlsx")}?${filterParams().toString()}`;
 }
 
 async function importXlsx(event) {
@@ -554,13 +589,13 @@ async function importXlsx(event) {
   const form = new FormData();
   form.append("file", file);
   try {
-    const response = await api("/api/records.xlsx", {
+    const response = await api("/records.xlsx", {
       method: "POST",
       body: form,
     });
     event.target.value = "";
 
-    const result = await response.json().catch(() => ({}));
+    const result = await readJSON(response).catch(() => ({}));
     if (!response.ok) {
       showMessage(result.error || "导入失败", true);
       return;
@@ -586,13 +621,13 @@ async function recognizePhoto(event) {
   formData.append("file", file);
 
   try {
-    const response = await api("/api/recognize", {
+    const response = await api("/recognize", {
       method: "POST",
       body: formData,
     });
     event.target.value = "";
 
-    const payload = await response.json();
+    const payload = await readJSON(response);
     if (!response.ok) {
       showMessage(payload.error || "识别失败", true);
       return;
@@ -607,7 +642,7 @@ async function recognizePhoto(event) {
     let saved = 0;
     for (const item of records) {
       const record = buildRecord(item);
-      const res = await api("/api/records", {
+      const res = await api("/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(record),
