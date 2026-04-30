@@ -394,30 +394,21 @@ async function recognizePhoto(event) {
       return;
     }
 
-    const first = records[0];
-    if (first.date) els.form.elements.date.value = first.date;
-    if (first.time) els.form.elements.time.value = first.time;
-    if (first.dynamicGlucose != null) els.form.elements.dynamicGlucose.value = first.dynamicGlucose;
-    if (first.fingerGlucose != null) els.form.elements.fingerGlucose.value = first.fingerGlucose;
-    if (first.systolic != null) els.form.elements.systolic.value = first.systolic;
-    if (first.diastolic != null) els.form.elements.diastolic.value = first.diastolic;
-    if (first.pulse != null) els.form.elements.pulse.value = first.pulse;
-
-    if (records.length > 1) {
-      let saved = 0;
-      for (let i = 1; i < records.length; i++) {
-        const record = buildRecord(records[i]);
-        const res = await fetch("/api/records", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(record),
-        });
-        if (res.ok) saved++;
-      }
-      showMessage(`识别 ${records.length} 条，已自动保存 ${saved} 条，第1条已填入表单`);
-    } else {
-      showMessage("识别成功，请核对数据");
+    let saved = 0;
+    for (const item of records) {
+      const record = buildRecord(item);
+      const res = await fetch("/api/records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record),
+      });
+      if (res.ok) saved++;
     }
+
+    els.form.reset();
+    setDefaultFormDate();
+    showMessage(`识别 ${records.length} 条，已自动保存 ${saved} 条`);
+    await loadRecords();
   } catch {
     showMessage("网络异常，识别失败", true);
   } finally {
