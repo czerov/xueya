@@ -25,6 +25,16 @@
         </div>
       </header>
 
+      <section class="config-bar" id="configBar">
+        <label>
+          数据路径
+          <input id="dataPathInput" type="text" placeholder="data/records.json">
+        </label>
+        <button id="saveConfig" type="button">保存配置</button>
+        <span id="configMessage" role="status"></span>
+        <button id="toggleConfig" class="ghost-button" type="button" aria-label="隐藏配置">▲</button>
+      </section>
+
       <section class="summary-grid" id="summary"></section>
 
       <section class="toolbar" aria-label="时间段筛选">

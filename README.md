@@ -19,7 +19,7 @@
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `ADDR` | `:8080` | Web 服务监听地址 |
+| `ADDR` | `:6644` | Web 服务监听地址 |
 | `DATA_PATH` | `data/records.json` | 本地持久化 JSON 数据文件 |
 
 ## 本地运行
@@ -31,7 +31,7 @@ go run .
 打开：
 
 ```text
-http://localhost:8080
+http://localhost:6644
 ```
 
 ## Docker 运行
@@ -43,7 +43,7 @@ docker compose up -d --build
 打开：
 
 ```text
-http://localhost:8080
+http://localhost:6644
 ```
 
 停止：

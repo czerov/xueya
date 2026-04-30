@@ -22,6 +22,11 @@ const els = {
   exportCsv: document.querySelector("#exportCsv"),
   exportXlsx: document.querySelector("#exportXlsx"),
   importXlsx: document.querySelector("#importXlsx"),
+  dataPathInput: document.querySelector("#dataPathInput"),
+  saveConfig: document.querySelector("#saveConfig"),
+  configMessage: document.querySelector("#configMessage"),
+  toggleConfig: document.querySelector("#toggleConfig"),
+  configBar: document.querySelector("#configBar"),
 };
 
 init();
@@ -29,6 +34,7 @@ init();
 async function init() {
   setDefaultFormDate();
   bindEvents();
+  await loadConfig();
   await loadRecords();
 }
 
@@ -56,6 +62,15 @@ function bindEvents() {
   els.exportCsv.addEventListener("click", exportCsv);
   els.exportXlsx.addEventListener("click", exportXlsx);
   els.importXlsx.addEventListener("change", importXlsx);
+
+  els.saveConfig.addEventListener("click", saveConfig);
+  els.toggleConfig.addEventListener("click", () => {
+    const body = els.configBar.querySelector("label");
+    const btn = els.toggleConfig;
+    const hidden = body.style.display === "none";
+    body.style.display = hidden ? "" : "none";
+    btn.textContent = hidden ? "▲" : "▼";
+  });
 
   els.dayTable.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-delete]");
@@ -410,4 +425,43 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+async function loadConfig() {
+  const response = await fetch("/api/config");
+  if (!response.ok) return;
+  const cfg = await response.json();
+  els.dataPathInput.value = cfg.data_path || "";
+}
+
+async function saveConfig() {
+  const dataPath = els.dataPathInput.value.trim();
+  if (!dataPath) {
+    showConfigMessage("数据路径不能为空", true);
+    return;
+  }
+
+  const response = await fetch("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data_path: dataPath }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "保存配置失败" }));
+    showConfigMessage(error.error || "保存配置失败", true);
+    return;
+  }
+
+  showConfigMessage("配置已保存，数据已刷新");
+  await loadRecords();
+}
+
+function showConfigMessage(message, isError = false) {
+  els.configMessage.textContent = message;
+  els.configMessage.style.color = isError ? "var(--coral)" : "var(--teal)";
+  clearTimeout(showConfigMessage.timer);
+  showConfigMessage.timer = setTimeout(() => {
+    els.configMessage.textContent = "";
+  }, 3000);
 }
