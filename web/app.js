@@ -2,10 +2,12 @@ const segmentOrder = ["早上", "中午", "下午", "晚上"];
 
 function api(url, opts = {}) {
   opts.credentials = "same-origin";
-  const token = localStorage.getItem("token");
-  if (token) {
-    opts.headers = { ...opts.headers, Authorization: "Bearer " + token };
-  }
+  try {
+    const token = localStorage.getItem("token");
+    if (token) {
+      opts.headers = { ...opts.headers, Authorization: "Bearer " + token };
+    }
+  } catch { /* localStorage unavailable */ }
   return fetch(url, opts);
 }
 
@@ -65,18 +67,20 @@ async function init() {
 let authBusy = false;
 
 async function checkAuth() {
-  if (authBusy) return;
+  if (authBusy) { console.log("checkAuth: busy, skip"); return; }
   authBusy = true;
   try {
     const resp = await api("/api/check");
     const data = await resp.json();
+    console.log("checkAuth:", data);
     if (data.authed) {
       await showApp();
       authBusy = false;
       return;
     }
     showLogin(data);
-  } catch {
+  } catch(e) {
+    console.error("checkAuth error:", e);
     showLogin({ has_password: false });
   }
   authBusy = false;
@@ -90,12 +94,14 @@ function showLogin(data) {
 }
 
 function toLogin() {
+  console.log("toLogin called");
   els.mainApp.style.display = "none";
   els.settingsOverlay.style.display = "none";
   checkAuth();
 }
 
 async function showApp() {
+  console.log("showApp, token in localStorage:", !!localStorage.getItem("token"));
   els.loginOverlay.style.display = "none";
   els.mainApp.style.display = "";
   setDefaultFormDate();
@@ -169,12 +175,13 @@ async function login(e) {
       body: JSON.stringify({ username, password }),
     });
     const data = await resp.json();
+    console.log("login:", data);
     if (!resp.ok) {
       els.loginError.textContent = data.error || "登录失败";
       return;
     }
     if (data.token) {
-      localStorage.setItem("token", data.token);
+      try { localStorage.setItem("token", data.token); } catch {}
     }
     els.loginError.textContent = "";
     els.loginPassword.value = "";
@@ -255,6 +262,7 @@ async function saveSettings() {
 async function loadRecords() {
   try {
     const response = await api("/api/records");
+    console.log("loadRecords status:", response.status);
     if (!response.ok) {
       if (response.status === 401) { localStorage.removeItem("token"); return toLogin(); }
       return;
