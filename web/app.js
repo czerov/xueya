@@ -61,10 +61,18 @@ const els = {
 init();
 
 async function init() {
+  bindAuthEvents();
   await checkAuth();
 }
 
 let authBusy = false;
+let authEventsBound = false;
+
+function bindAuthEvents() {
+  if (authEventsBound) return;
+  authEventsBound = true;
+  els.loginForm.addEventListener("submit", login);
+}
 
 async function checkAuth() {
   if (authBusy) { console.log("checkAuth: busy, skip"); return; }
@@ -88,8 +96,10 @@ async function checkAuth() {
 
 function showLogin(data) {
   els.mainApp.style.display = "none";
-  els.loginTitle.textContent = "登录";
-  els.loginHint.textContent = "请输入用户名和密码";
+  const needsSetup = !data?.has_password;
+  els.loginTitle.textContent = needsSetup ? "设置访问密码" : "登录";
+  els.loginHint.textContent = needsSetup ? "首次使用请设置用户名和密码，后续凭此登录" : "请输入用户名和密码";
+  els.loginPassword.autocomplete = needsSetup ? "new-password" : "current-password";
   els.loginOverlay.style.display = "flex";
 }
 
@@ -147,7 +157,6 @@ function bindEvents() {
   });
   els.saveSettings.addEventListener("click", saveSettings);
   els.logoutButton.addEventListener("click", logout);
-  els.loginForm.addEventListener("submit", login);
   els.settingsOverlay.addEventListener("click", (e) => {
     if (e.target === els.settingsOverlay) els.settingsOverlay.style.display = "none";
   });

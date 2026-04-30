@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 )
 
 type Config struct {
@@ -34,6 +35,11 @@ func (c Config) Save(path string) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
 	}
 	return os.WriteFile(path, data, 0o644)
 }
