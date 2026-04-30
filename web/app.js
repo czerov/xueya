@@ -1,5 +1,7 @@
 const segmentOrder = ["早上", "中午", "下午", "晚上"];
 
+const api = (url, opts = {}) => fetch(url, { ...opts, credentials: "same-origin" });
+
 const state = {
   records: [],
   issues: [],
@@ -59,7 +61,7 @@ async function checkAuth() {
   if (authBusy) return;
   authBusy = true;
   try {
-    const resp = await fetch("/api/check");
+    const resp = await api("/api/check");
     const data = await resp.json();
     if (data.authed) {
       await showApp();
@@ -154,7 +156,7 @@ async function login(e) {
   els.loginSubmit.textContent = "验证中...";
 
   try {
-    const resp = await fetch("/api/login", {
+    const resp = await api("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -176,16 +178,16 @@ async function login(e) {
 }
 
 async function logout() {
-  await fetch("/api/logout", { method: "POST" });
+  await api("/api/logout", { method: "POST" });
   els.settingsOverlay.style.display = "none";
-  const resp = await fetch("/api/check");
+  const resp = await api("/api/check");
   const data = await resp.json().catch(() => ({}));
   showLogin(data);
 }
 
 async function loadConfig() {
   try {
-    const resp = await fetch("/api/config");
+    const resp = await api("/api/config");
     if (!resp.ok) return;
     const cfg = await resp.json();
     els.settingsDataPath.value = cfg.data_path || "";
@@ -210,7 +212,7 @@ async function saveSettings() {
   }
 
   try {
-    const resp = await fetch("/api/config", {
+    const resp = await api("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -241,7 +243,7 @@ async function saveSettings() {
 
 async function loadRecords() {
   try {
-    const response = await fetch("/api/records");
+    const response = await api("/api/records");
     if (!response.ok) {
       if (response.status === 401) return toLogin();
       return;
@@ -442,7 +444,7 @@ async function submitRecord(event) {
   addNumber(record, "pulse", form.get("pulse"));
 
   try {
-    const response = await fetch("/api/records", {
+    const response = await api("/api/records", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(record),
@@ -514,7 +516,7 @@ async function importXlsx(event) {
   const form = new FormData();
   form.append("file", file);
   try {
-    const response = await fetch("/api/records.xlsx", {
+    const response = await api("/api/records.xlsx", {
       method: "POST",
       body: form,
     });
@@ -546,7 +548,7 @@ async function recognizePhoto(event) {
   formData.append("file", file);
 
   try {
-    const response = await fetch("/api/recognize", {
+    const response = await api("/api/recognize", {
       method: "POST",
       body: formData,
     });
@@ -567,7 +569,7 @@ async function recognizePhoto(event) {
     let saved = 0;
     for (const item of records) {
       const record = buildRecord(item);
-      const res = await fetch("/api/records", {
+      const res = await api("/api/records", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(record),

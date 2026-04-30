@@ -84,6 +84,9 @@ func main() {
 	mux.HandleFunc("/api/records.xlsx", api.auth(api.recordsXLSX))
 	mux.HandleFunc("/api/records/", api.auth(api.recordByID))
 	mux.HandleFunc("/api/recognize", api.auth(api.recognize))
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.Handle("/", http.FileServer(http.FS(webRoot)))
 
 	addr := env("ADDR", ":6644")
