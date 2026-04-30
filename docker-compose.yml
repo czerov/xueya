@@ -6,7 +6,7 @@ services:
       - "6644:6644"
     environment:
       ADDR: ":6644"
-      DATA_PATH: "/app/data/records.json"
     volumes:
       - ./data:/app/data
+      - ./config:/app/config
     restart: unless-stopped

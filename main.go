@@ -27,7 +27,10 @@ type apiServer struct {
 func main() {
 	seed := health.ParseRaw(health.RawData)
 
-	cfgPath := "config.json"
+	cfgPath := os.Getenv("CONFIG_PATH")
+	if cfgPath == "" {
+		cfgPath = "config/config.json"
+	}
 	cfg, err := health.LoadConfig(cfgPath)
 	if err != nil {
 		cfg = health.Config{}
