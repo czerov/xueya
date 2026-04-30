@@ -214,8 +214,9 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 				},
 			},
 		},
-		"max_tokens":  300,
-		"temperature": 0,
+		"max_tokens":      300,
+		"temperature":     0,
+		"enable_thinking": false,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -248,7 +249,8 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 	var openAIResp struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -260,7 +262,16 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 		return nil, errors.New("API 未返回有效内容")
 	}
 
-	content := extractJSON(openAIResp.Choices[0].Message.Content)
+	content := openAIResp.Choices[0].Message.Content
+	if content == "" {
+		content = openAIResp.Choices[0].Message.ReasoningContent
+	}
+	content = extractJSON(content)
+	log.Printf("识别原始返回: %s", content)
+
+	if content == "" {
+		return nil, errors.New("API 返回内容为空")
+	}
 
 	var result map[string]any
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
