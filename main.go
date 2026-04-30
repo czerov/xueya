@@ -106,6 +106,7 @@ func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"has_password": hasPassword,
+		"username":     s.cfg.Username,
 		"authed":       s.validSession(r),
 	})
 }
@@ -117,10 +118,15 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+		return
+	}
+	if req.Username == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "用户名和密码不能为空")
 		return
 	}
 
@@ -130,19 +136,19 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	if !hasPassword {
-		s.mu.Lock()
+		cfg.Username = req.Username
 		if err := cfg.SetPassword(req.Password); err != nil {
-			s.mu.Unlock()
 			writeError(w, http.StatusInternalServerError, "设置密码失败")
 			return
 		}
+		s.mu.Lock()
 		s.cfg = cfg
 		s.mu.Unlock()
 		if err := cfg.Save(s.cfgPath); err != nil {
 			log.Printf("save config: %v", err)
 		}
-	} else if !cfg.CheckPassword(req.Password) {
-		writeError(w, http.StatusUnauthorized, "密码错误")
+	} else if cfg.Username != req.Username || !cfg.CheckPassword(req.Password) {
+		writeError(w, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
 
@@ -214,14 +220,20 @@ func (s *apiServer) config(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.mu.RLock()
 		defer s.mu.RUnlock()
-		writeJSON(w, http.StatusOK, map[string]string{
-			"data_path": s.cfg.DataPath,
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data_path":    s.cfg.DataPath,
+			"vision_url":   s.cfg.VisionURL,
+			"vision_key":   s.cfg.VisionKey,
+			"vision_model": s.cfg.VisionModel,
 		})
 	case http.MethodPost:
 		var req struct {
 			DataPath     string `json:"data_path"`
 			NewPassword  string `json:"new_password"`
 			OldPassword  string `json:"old_password"`
+			VisionURL    string `json:"vision_url"`
+			VisionKey    string `json:"vision_key"`
+			VisionModel  string `json:"vision_model"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
@@ -252,12 +264,19 @@ func (s *apiServer) config(w http.ResponseWriter, r *http.Request) {
 			s.cfg.DataPath = req.DataPath
 		}
 
+		s.cfg.VisionURL = strings.TrimSpace(req.VisionURL)
+		s.cfg.VisionKey = strings.TrimSpace(req.VisionKey)
+		s.cfg.VisionModel = strings.TrimSpace(req.VisionModel)
+
 		if err := s.cfg.Save(s.cfgPath); err != nil {
 			writeError(w, http.StatusInternalServerError, "保存配置失败: "+err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{
-			"data_path": s.cfg.DataPath,
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data_path":    s.cfg.DataPath,
+			"vision_url":   s.cfg.VisionURL,
+			"vision_key":   s.cfg.VisionKey,
+			"vision_model": s.cfg.VisionModel,
 		})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
@@ -417,7 +436,7 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 	b64 := base64.StdEncoding.EncodeToString(imageData)
 	dataURL := "data:" + contentType + ";base64," + b64
 
-	result, err := callVisionAPI(dataURL)
+	result, err := s.callVisionAPI(dataURL)
 	if err != nil {
 		log.Printf("拍照识别失败: %v", err)
 		writeError(w, http.StatusInternalServerError, "识别失败: "+err.Error())
@@ -428,9 +447,12 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"records": result})
 }
 
-func callVisionAPI(imageDataURL string) ([]map[string]any, error) {
-	apiURL := strings.TrimSpace(os.Getenv("VISION_API_URL"))
-	apiKey := strings.TrimSpace(os.Getenv("VISION_API_KEY"))
+func (s *apiServer) callVisionAPI(imageDataURL string) ([]map[string]any, error) {
+	s.mu.RLock()
+	apiURL := s.cfg.VisionURL
+	apiKey := s.cfg.VisionKey
+	visionModel := s.cfg.VisionModel
+	s.mu.RUnlock()
 
 	if apiURL == "" || apiKey == "" {
 		result := []map[string]any{{
@@ -443,9 +465,9 @@ func callVisionAPI(imageDataURL string) ([]map[string]any, error) {
 		return result, nil
 	}
 
-	systemPrompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，逐条提取屏幕中显示的全部测量记录。常见情况：血糖仪屏幕通常显示最近 3~7 天历史，每行包含日期（如 04/28）、时间（如 08:30）和血糖值；血压计屏幕通常仅显示当前一次测量。请严格返回一个 JSON 数组，每个元素是一个对象，键名用英文 camelCase：date (日期, YYYY-MM-DD 格式), time (时间, HH:MM 格式), systolic (收缩压, mmHg), diastolic (舒张压, mmHg), pulse (心率, bpm), dynamicGlucose (动态血糖, mmol/L), fingerGlucose (扎手指血糖, mmol/L)。尽量还原屏幕上的原始日期和时间。如某项无法读取则不输出该字段。禁止输出任何解释、注释或 markdown。"
+	prompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，逐条提取屏幕中显示的全部测量记录。常见情况：血糖仪屏幕通常显示最近 3~7 天历史，每行包含日期（如 04/28）、时间（如 08:30）和血糖值；血压计屏幕通常仅显示当前一次测量。请严格返回一个 JSON 数组，每个元素是一个对象，键名用英文 camelCase：date (日期, YYYY-MM-DD 格式), time (时间, HH:MM 格式), systolic (收缩压, mmHg), diastolic (舒张压, mmHg), pulse (心率, bpm), dynamicGlucose (动态血糖, mmol/L), fingerGlucose (扎手指血糖, mmol/L)。尽量还原屏幕上的原始日期和时间。如某项无法读取则不输出该字段。禁止输出任何解释、注释或 markdown。"
 
-	model := strings.TrimSpace(os.Getenv("VISION_MODEL"))
+	model := visionModel
 	if model == "" {
 		model = "Qwen/Qwen3.5-4B"
 	}
@@ -455,7 +477,7 @@ func callVisionAPI(imageDataURL string) ([]map[string]any, error) {
 		"messages": []map[string]any{
 			{
 				"role":    "system",
-				"content": systemPrompt,
+				"content": prompt,
 			},
 			{
 				"role": "user",

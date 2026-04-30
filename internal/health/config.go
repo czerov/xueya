@@ -9,9 +9,13 @@ import (
 )
 
 type Config struct {
-	DataPath string `json:"data_path"`
-	Password string `json:"password"`
-	Salt     string `json:"salt"`
+	Username    string `json:"username"`
+	DataPath    string `json:"data_path"`
+	Password    string `json:"password"`
+	Salt        string `json:"salt"`
+	VisionURL   string `json:"vision_url"`
+	VisionKey   string `json:"vision_key"`
+	VisionModel string `json:"vision_model"`
 }
 
 func LoadConfig(path string) (Config, error) {

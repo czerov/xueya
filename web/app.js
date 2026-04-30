@@ -28,6 +28,7 @@ const els = {
   loginForm: document.querySelector("#loginForm"),
   loginTitle: document.querySelector("#loginTitle"),
   loginHint: document.querySelector("#loginHint"),
+  loginUsername: document.querySelector("#loginUsername"),
   loginPassword: document.querySelector("#loginPassword"),
   loginSubmit: document.querySelector("#loginSubmit"),
   loginError: document.querySelector("#loginError"),
@@ -35,6 +36,9 @@ const els = {
   settingsBtn: document.querySelector("#settingsBtn"),
   settingsOverlay: document.querySelector("#settingsOverlay"),
   settingsDataPath: document.querySelector("#settingsDataPath"),
+  settingsVisionURL: document.querySelector("#settingsVisionURL"),
+  settingsVisionKey: document.querySelector("#settingsVisionKey"),
+  settingsVisionModel: document.querySelector("#settingsVisionModel"),
   settingsOldPassword: document.querySelector("#settingsOldPassword"),
   settingsNewPassword: document.querySelector("#settingsNewPassword"),
   saveSettings: document.querySelector("#saveSettings"),
@@ -122,8 +126,9 @@ function bindEvents() {
 
 async function login(e) {
   e.preventDefault();
+  const username = els.loginUsername.value.trim();
   const password = els.loginPassword.value;
-  if (!password) return;
+  if (!username || !password) return;
 
   els.loginSubmit.disabled = true;
   els.loginSubmit.textContent = "验证中...";
@@ -132,7 +137,7 @@ async function login(e) {
     const resp = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -167,11 +172,17 @@ async function loadConfig() {
     if (!resp.ok) return;
     const cfg = await resp.json();
     els.settingsDataPath.value = cfg.data_path || "";
+    els.settingsVisionURL.value = cfg.vision_url || "";
+    els.settingsVisionKey.value = cfg.vision_key || "";
+    els.settingsVisionModel.value = cfg.vision_model || "";
   } catch { /* ignore */ }
 }
 
 async function saveSettings() {
   const dataPath = els.settingsDataPath.value.trim();
+  const visionURL = els.settingsVisionURL.value.trim();
+  const visionKey = els.settingsVisionKey.value.trim();
+  const visionModel = els.settingsVisionModel.value.trim();
   const newPassword = els.settingsNewPassword.value;
   const oldPassword = els.settingsOldPassword.value;
 
@@ -187,6 +198,9 @@ async function saveSettings() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         data_path: dataPath,
+        vision_url: visionURL,
+        vision_key: visionKey,
+        vision_model: visionModel,
         new_password: newPassword || null,
         old_password: oldPassword || null,
       }),
@@ -197,7 +211,7 @@ async function saveSettings() {
       els.settingsMessage.style.color = "var(--coral)";
       return;
     }
-    els.settingsMessage.textContent = newPassword ? "配置和密码已更新" : "配置已保存，数据已刷新";
+    els.settingsMessage.textContent = newPassword ? "配置和密码已更新" : "配置已保存";
     els.settingsMessage.style.color = "var(--teal)";
     els.settingsOldPassword.value = "";
     els.settingsNewPassword.value = "";

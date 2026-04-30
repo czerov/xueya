@@ -10,8 +10,9 @@
     <div class="login-overlay" id="loginOverlay">
       <form class="login-card" id="loginForm">
         <h2 id="loginTitle">设置访问密码</h2>
-        <p id="loginHint">首次使用请设置密码，后续凭此密码登录</p>
-        <input id="loginPassword" type="password" placeholder="请输入密码" required autocomplete="new-password">
+        <p id="loginHint">首次使用请设置用户名和密码，后续凭此登录</p>
+        <input id="loginUsername" type="text" placeholder="用户名" required autocomplete="username">
+        <input id="loginPassword" type="password" placeholder="密码" required autocomplete="new-password">
         <button type="submit" id="loginSubmit">确定</button>
         <span id="loginError"></span>
       </form>
@@ -27,6 +28,20 @@
           数据路径
           <input id="settingsDataPath" type="text" placeholder="data/records.json">
         </label>
+        <hr>
+        <label>
+          Vision API URL
+          <input id="settingsVisionURL" type="text" placeholder="https://api.siliconflow.cn/v1/chat/completions">
+        </label>
+        <label>
+          Vision API Key
+          <input id="settingsVisionKey" type="password" placeholder="sk-xxx">
+        </label>
+        <label>
+          Vision 模型
+          <input id="settingsVisionModel" type="text" placeholder="Qwen/Qwen3.6-27B">
+        </label>
+        <hr>
         <label>
           原密码
           <input id="settingsOldPassword" type="password" placeholder="修改密码时需填写">
