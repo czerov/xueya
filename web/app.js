@@ -27,6 +27,8 @@ const els = {
   configMessage: document.querySelector("#configMessage"),
   toggleConfig: document.querySelector("#toggleConfig"),
   configBar: document.querySelector("#configBar"),
+  cameraInput: document.querySelector("#cameraInput"),
+  cameraLabel: document.querySelector(".camera-button"),
 };
 
 init();
@@ -62,6 +64,8 @@ function bindEvents() {
   els.exportCsv.addEventListener("click", exportCsv);
   els.exportXlsx.addEventListener("click", exportXlsx);
   els.importXlsx.addEventListener("change", importXlsx);
+
+  els.cameraInput.addEventListener("change", recognizePhoto);
 
   els.saveConfig.addEventListener("click", saveConfig);
   els.toggleConfig.addEventListener("click", () => {
@@ -357,6 +361,46 @@ async function importXlsx(event) {
 
   showMessage(`已导入 ${result.imported || 0} 条，跳过 ${result.skipped || 0} 条`);
   await loadRecords();
+}
+
+async function recognizePhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const label = els.cameraLabel;
+  const originalText = label.textContent;
+  label.textContent = "识别中...";
+  label.style.pointerEvents = "none";
+
+  const form = new FormData();
+  form.append("file", file);
+
+  try {
+    const response = await fetch("/api/recognize", {
+      method: "POST",
+      body: form,
+    });
+    event.target.value = "";
+
+    const result = await response.json();
+    if (!response.ok) {
+      showMessage(result.error || "识别失败", true);
+      return;
+    }
+
+    if (result.dynamicGlucose != null) els.form.elements.dynamicGlucose.value = result.dynamicGlucose;
+    if (result.fingerGlucose != null) els.form.elements.fingerGlucose.value = result.fingerGlucose;
+    if (result.systolic != null) els.form.elements.systolic.value = result.systolic;
+    if (result.diastolic != null) els.form.elements.diastolic.value = result.diastolic;
+    if (result.pulse != null) els.form.elements.pulse.value = result.pulse;
+
+    showMessage(result._mock ? "识别成功（演示数据）" : "识别成功，请核对数据");
+  } catch {
+    showMessage("网络异常，识别失败", true);
+  } finally {
+    label.textContent = originalText;
+    label.style.pointerEvents = "";
+  }
 }
 
 function filterParams() {

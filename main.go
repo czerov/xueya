@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"xueya/internal/health"
@@ -65,6 +69,7 @@ func main() {
 	mux.HandleFunc("/api/records.xlsx", api.recordsXLSX)
 	mux.HandleFunc("/api/records/", api.recordByID)
 	mux.HandleFunc("/api/config", api.config)
+	mux.HandleFunc("/api/recognize", api.recognize)
 	mux.Handle("/", http.FileServer(http.FS(webRoot)))
 
 	addr := env("ADDR", ":6644")
@@ -120,6 +125,159 @@ func (s *apiServer) config(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
 	}
+}
+
+func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "图片过大或格式不正确")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "请选择图片")
+		return
+	}
+	defer file.Close()
+
+	imageData, err := io.ReadAll(io.LimitReader(file, 16<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "读取图片失败")
+		return
+	}
+
+	contentType := http.DetectContentType(imageData)
+	if !strings.HasPrefix(contentType, "image/") {
+		writeError(w, http.StatusBadRequest, "文件不是有效图片")
+		return
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(imageData)
+	dataURL := "data:" + contentType + ";base64," + b64
+
+	result, err := callVisionAPI(dataURL)
+	if err != nil {
+		log.Printf("vision API: %v", err)
+		writeError(w, http.StatusInternalServerError, "识别失败: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func callVisionAPI(imageDataURL string) (map[string]any, error) {
+	apiURL := strings.TrimSpace(os.Getenv("VISION_API_URL"))
+	apiKey := strings.TrimSpace(os.Getenv("VISION_API_KEY"))
+
+	if apiURL == "" || apiKey == "" {
+		return map[string]any{
+			"systolic":       120,
+			"diastolic":      80,
+			"pulse":          75,
+			"dynamicGlucose": 5.5,
+			"_mock":          true,
+		}, nil
+	}
+
+	systemPrompt := "你是一个精准的医疗数据提取助手。请分析用户上传的健康仪器屏幕照片，提取可见的数值。严格只输出一个干净的 JSON 对象，键名用英文 camelCase：systolic (收缩压, 单位 mmHg), diastolic (舒张压, 单位 mmHg), pulse (心率, 单位 bpm), dynamicGlucose (动态血糖, 单位 mmol/L), fingerGlucose (扎手指血糖, 单位 mmol/L)。如果某项数值无法读取，不要输出该字段。禁止输出任何解释、注释或 markdown。"
+
+	model := strings.TrimSpace(os.Getenv("VISION_MODEL"))
+	if model == "" {
+		model = "Qwen/Qwen3.5-4B"
+	}
+
+	reqBody := map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			{
+				"role":    "system",
+				"content": systemPrompt,
+			},
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": imageDataURL,
+						},
+					},
+				},
+			},
+		},
+		"max_tokens":  300,
+		"temperature": 0,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var openAIResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
+		return nil, fmt.Errorf("parse API response: %w", err)
+	}
+
+	if len(openAIResp.Choices) == 0 {
+		return nil, errors.New("API 未返回有效内容")
+	}
+
+	content := extractJSON(openAIResp.Choices[0].Message.Content)
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return nil, fmt.Errorf("parse result JSON: %w", err)
+	}
+
+	return result, nil
+}
+
+func extractJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if start := strings.Index(s, "```json"); start >= 0 {
+		s = s[start+7:]
+	} else if start := strings.Index(s, "```"); start >= 0 {
+		s = s[start+3:]
+	}
+	if end := strings.LastIndex(s, "```"); end >= 0 {
+		s = s[:end]
+	}
+	return strings.TrimSpace(s)
 }
 
 func (s *apiServer) records(w http.ResponseWriter, r *http.Request) {
