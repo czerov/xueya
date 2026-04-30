@@ -159,8 +159,9 @@ h2 {
 .toolbar {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 3;
   padding: 10px 0 16px;
+  background: var(--paper);
   backdrop-filter: blur(18px);
 }
 
@@ -320,8 +321,8 @@ label select {
 
 .table-head {
   position: sticky;
-  top: 68px;
-  z-index: 4;
+  top: 52px;
+  z-index: 5;
   background: var(--teal-strong);
   color: var(--white);
   font-weight: 700;
