@@ -7,13 +7,49 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="app-shell">
+    <div class="login-overlay" id="loginOverlay">
+      <form class="login-card" id="loginForm">
+        <h2 id="loginTitle">设置访问密码</h2>
+        <p id="loginHint">首次使用请设置密码，后续凭此密码登录</p>
+        <input id="loginPassword" type="password" placeholder="请输入密码" required autocomplete="new-password">
+        <button type="submit" id="loginSubmit">确定</button>
+        <span id="loginError"></span>
+      </form>
+    </div>
+
+    <div class="modal-overlay" id="settingsOverlay" style="display:none">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>设置</h2>
+          <button class="ghost-button" id="closeSettings" type="button">✕</button>
+        </div>
+        <label>
+          数据路径
+          <input id="settingsDataPath" type="text" placeholder="data/records.json">
+        </label>
+        <label>
+          原密码
+          <input id="settingsOldPassword" type="password" placeholder="修改密码时需填写">
+        </label>
+        <label>
+          新密码
+          <input id="settingsNewPassword" type="password" placeholder="留空则不修改">
+        </label>
+        <button id="saveSettings" type="button">保存配置</button>
+        <span id="settingsMessage"></span>
+        <hr>
+        <button id="logoutButton" class="danger-button" type="button">退出登录</button>
+      </div>
+    </div>
+
+    <main class="app-shell" id="mainApp" style="display:none">
       <header class="topbar">
         <div>
           <p class="eyebrow">2026 血糖血压</p>
           <h1>每日分时记录表</h1>
         </div>
         <div class="top-actions">
+          <button id="settingsBtn" type="button" class="ghost-button" aria-label="设置">⚙</button>
           <select id="monthSelect" aria-label="选择月份"></select>
           <input id="dateSearch" type="date" aria-label="按日期筛选">
           <button id="exportCsv" type="button">导出 CSV</button>
@@ -24,16 +60,6 @@
           </label>
         </div>
       </header>
-
-      <section class="config-bar" id="configBar">
-        <label>
-          数据路径
-          <input id="dataPathInput" type="text" placeholder="data/records.json">
-        </label>
-        <button id="saveConfig" type="button">保存配置</button>
-        <span id="configMessage" role="status"></span>
-        <button id="toggleConfig" class="ghost-button" type="button" aria-label="隐藏配置">▲</button>
-      </section>
 
       <section class="summary-grid" id="summary"></section>
 

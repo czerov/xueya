@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"xueya/internal/health"
 )
@@ -22,10 +25,12 @@ import (
 var webFiles embed.FS
 
 type apiServer struct {
-	mu       sync.RWMutex
-	store    *health.Store
-	cfg      health.Config
-	cfgPath  string
+	mu        sync.RWMutex
+	store     *health.Store
+	cfg       health.Config
+	cfgPath   string
+	sessions  map[string]time.Time
+	sessionMu sync.Mutex
 }
 
 func main() {
@@ -63,13 +68,22 @@ func main() {
 		log.Fatalf("load web files: %v", err)
 	}
 
-	api := &apiServer{store: store, cfg: cfg, cfgPath: cfgPath}
+	api := &apiServer{
+		store:    store,
+		cfg:      cfg,
+		cfgPath:  cfgPath,
+		sessions: make(map[string]time.Time),
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/records", api.records)
-	mux.HandleFunc("/api/records.xlsx", api.recordsXLSX)
-	mux.HandleFunc("/api/records/", api.recordByID)
-	mux.HandleFunc("/api/config", api.config)
-	mux.HandleFunc("/api/recognize", api.recognize)
+	mux.HandleFunc("/api/login", api.login)
+	mux.HandleFunc("/api/logout", api.logout)
+	mux.HandleFunc("/api/check", api.check)
+	mux.HandleFunc("/api/config", api.auth(api.config))
+	mux.HandleFunc("/api/records", api.auth(api.records))
+	mux.HandleFunc("/api/records.xlsx", api.auth(api.recordsXLSX))
+	mux.HandleFunc("/api/records/", api.auth(api.recordByID))
+	mux.HandleFunc("/api/recognize", api.auth(api.recognize))
 	mux.Handle("/", http.FileServer(http.FS(webRoot)))
 
 	addr := env("ADDR", ":6644")
@@ -86,42 +100,284 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	hasPassword := s.cfg.Password != ""
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"has_password": hasPassword,
+		"authed":       s.validSession(r),
+	})
+}
+
+func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+		return
+	}
+
+	s.mu.RLock()
+	hasPassword := s.cfg.Password != ""
+	cfg := s.cfg
+	s.mu.RUnlock()
+
+	if !hasPassword {
+		s.mu.Lock()
+		if err := cfg.SetPassword(req.Password); err != nil {
+			s.mu.Unlock()
+			writeError(w, http.StatusInternalServerError, "设置密码失败")
+			return
+		}
+		s.cfg = cfg
+		s.mu.Unlock()
+		if err := cfg.Save(s.cfgPath); err != nil {
+			log.Printf("save config: %v", err)
+		}
+	} else if !cfg.CheckPassword(req.Password) {
+		writeError(w, http.StatusUnauthorized, "密码错误")
+		return
+	}
+
+	token := s.newSession()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   86400 * 7,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+func (s *apiServer) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("session"); err == nil {
+		s.sessionMu.Lock()
+		delete(s.sessions, cookie.Value)
+		s.sessionMu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+}
+
+func (s *apiServer) auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.validSession(r) {
+			writeError(w, http.StatusUnauthorized, "未登录")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *apiServer) validSession(r *http.Request) bool {
+	cookie, err := r.Cookie("session")
+	if err != nil {
+		return false
+	}
+	s.sessionMu.Lock()
+	expiry, ok := s.sessions[cookie.Value]
+	if ok && time.Now().Before(expiry) {
+		s.sessionMu.Unlock()
+		return true
+	}
+	delete(s.sessions, cookie.Value)
+	s.sessionMu.Unlock()
+	return false
+}
+
+func (s *apiServer) newSession() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+	s.sessionMu.Lock()
+	s.sessions[token] = time.Now().Add(7 * 24 * time.Hour)
+	s.sessionMu.Unlock()
+	return token
+}
+
 func (s *apiServer) config(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.mu.RLock()
 		defer s.mu.RUnlock()
-		writeJSON(w, http.StatusOK, s.cfg)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"data_path": s.cfg.DataPath,
+		})
 	case http.MethodPost:
-		var cfg health.Config
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		var req struct {
+			DataPath     string `json:"data_path"`
+			NewPassword  string `json:"new_password"`
+			OldPassword  string `json:"old_password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
-			return
-		}
-		dataPath := cfg.DataPath
-		if dataPath == "" {
-			writeError(w, http.StatusBadRequest, "data_path 不能为空")
-			return
-		}
-
-		newStore, err := health.NewStore(dataPath, nil, nil)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "无法打开新数据文件: "+err.Error())
-			return
-		}
-
-		cfg.DataPath = dataPath
-		if err := cfg.Save(s.cfgPath); err != nil {
-			writeError(w, http.StatusInternalServerError, "保存配置失败: "+err.Error())
 			return
 		}
 
 		s.mu.Lock()
-		s.store = newStore
-		s.cfg = cfg
-		s.mu.Unlock()
+		defer s.mu.Unlock()
 
-		writeJSON(w, http.StatusOK, s.cfg)
+		if req.NewPassword != "" {
+			if s.cfg.Password != "" && !s.cfg.CheckPassword(req.OldPassword) {
+				writeError(w, http.StatusBadRequest, "原密码错误")
+				return
+			}
+			if err := s.cfg.SetPassword(req.NewPassword); err != nil {
+				writeError(w, http.StatusInternalServerError, "设置密码失败")
+				return
+			}
+		}
+
+		if req.DataPath != "" && req.DataPath != s.cfg.DataPath {
+			newStore, err := health.NewStore(req.DataPath, nil, nil)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "无法打开新数据文件: "+err.Error())
+				return
+			}
+			s.store = newStore
+			s.cfg.DataPath = req.DataPath
+		}
+
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			writeError(w, http.StatusInternalServerError, "保存配置失败: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{
+			"data_path": s.cfg.DataPath,
+		})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+	}
+}
+
+func (s *apiServer) records(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	store := s.store
+	s.mu.RUnlock()
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, health.Dataset{
+			Records: store.All(),
+			Issues:  store.Issues(),
+		})
+	case http.MethodPost:
+		var record health.Record
+		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+			return
+		}
+		saved, err := store.Add(record)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, saved)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+	}
+}
+
+func (s *apiServer) recordsXLSX(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	store := s.store
+	s.mu.RUnlock()
+
+	switch r.Method {
+	case http.MethodGet:
+		data, err := health.ExportXLSX(filterRecords(store.All(), r))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "导出 XLSX 失败")
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Content-Disposition", `attachment; filename="xueya-records.xlsx"`)
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(data); err != nil {
+			log.Printf("write xlsx: %v", err)
+		}
+	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
+		if err := r.ParseMultipartForm(16 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "上传文件过大或格式不正确")
+			return
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "请选择 XLSX 文件")
+			return
+		}
+		defer file.Close()
+
+		data, err := io.ReadAll(io.LimitReader(file, 16<<20))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "读取 XLSX 文件失败")
+			return
+		}
+		records, err := health.ImportXLSX(data)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		imported, skipped, err := store.ImportRecords(records)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int{
+			"imported": len(imported),
+			"skipped":  skipped,
+		})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+	}
+}
+
+func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Path[len("/api/records/"):]
+	if id == "" {
+		writeError(w, http.StatusNotFound, "记录不存在")
+		return
+	}
+
+	s.mu.RLock()
+	store := s.store
+	s.mu.RUnlock()
+
+	switch r.Method {
+	case http.MethodDelete:
+		if err := store.Delete(id); err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodPut:
+		var record health.Record
+		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+			return
+		}
+		record.ID = id
+		saved, err := store.Replace(record)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, saved)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
 	}
@@ -299,125 +555,6 @@ func extractJSON(s string) string {
 		s = s[:end]
 	}
 	return strings.TrimSpace(s)
-}
-
-func (s *apiServer) records(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	store := s.store
-	s.mu.RUnlock()
-
-	switch r.Method {
-	case http.MethodGet:
-		writeJSON(w, http.StatusOK, health.Dataset{
-			Records: store.All(),
-			Issues:  store.Issues(),
-		})
-	case http.MethodPost:
-		var record health.Record
-		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
-			return
-		}
-		saved, err := store.Add(record)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, saved)
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
-	}
-}
-
-func (s *apiServer) recordsXLSX(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	store := s.store
-	s.mu.RUnlock()
-
-	switch r.Method {
-	case http.MethodGet:
-		data, err := health.ExportXLSX(filterRecords(store.All(), r))
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "导出 XLSX 失败")
-			return
-		}
-		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		w.Header().Set("Content-Disposition", `attachment; filename="xueya-records.xlsx"`)
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(data); err != nil {
-			log.Printf("write xlsx: %v", err)
-		}
-	case http.MethodPost:
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
-		if err := r.ParseMultipartForm(16 << 20); err != nil {
-			writeError(w, http.StatusBadRequest, "上传文件过大或格式不正确")
-			return
-		}
-		file, _, err := r.FormFile("file")
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "请选择 XLSX 文件")
-			return
-		}
-		defer file.Close()
-
-		data, err := io.ReadAll(io.LimitReader(file, 16<<20))
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "读取 XLSX 文件失败")
-			return
-		}
-		records, err := health.ImportXLSX(data)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		imported, skipped, err := store.ImportRecords(records)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]int{
-			"imported": len(imported),
-			"skipped":  skipped,
-		})
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
-	}
-}
-
-func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Path[len("/api/records/"):]
-	if id == "" {
-		writeError(w, http.StatusNotFound, "记录不存在")
-		return
-	}
-
-	s.mu.RLock()
-	store := s.store
-	s.mu.RUnlock()
-
-	switch r.Method {
-	case http.MethodDelete:
-		if err := store.Delete(id); err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	case http.MethodPut:
-		var record health.Record
-		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
-			return
-		}
-		record.ID = id
-		saved, err := store.Replace(record)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, saved)
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

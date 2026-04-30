@@ -22,18 +22,53 @@ const els = {
   exportCsv: document.querySelector("#exportCsv"),
   exportXlsx: document.querySelector("#exportXlsx"),
   importXlsx: document.querySelector("#importXlsx"),
-  dataPathInput: document.querySelector("#dataPathInput"),
-  saveConfig: document.querySelector("#saveConfig"),
-  configMessage: document.querySelector("#configMessage"),
-  toggleConfig: document.querySelector("#toggleConfig"),
-  configBar: document.querySelector("#configBar"),
   cameraInput: document.querySelector("#cameraInput"),
   cameraLabel: document.querySelector(".camera-button"),
+  loginOverlay: document.querySelector("#loginOverlay"),
+  loginForm: document.querySelector("#loginForm"),
+  loginTitle: document.querySelector("#loginTitle"),
+  loginHint: document.querySelector("#loginHint"),
+  loginPassword: document.querySelector("#loginPassword"),
+  loginSubmit: document.querySelector("#loginSubmit"),
+  loginError: document.querySelector("#loginError"),
+  mainApp: document.querySelector("#mainApp"),
+  settingsBtn: document.querySelector("#settingsBtn"),
+  settingsOverlay: document.querySelector("#settingsOverlay"),
+  settingsDataPath: document.querySelector("#settingsDataPath"),
+  settingsOldPassword: document.querySelector("#settingsOldPassword"),
+  settingsNewPassword: document.querySelector("#settingsNewPassword"),
+  saveSettings: document.querySelector("#saveSettings"),
+  settingsMessage: document.querySelector("#settingsMessage"),
+  closeSettings: document.querySelector("#closeSettings"),
+  logoutButton: document.querySelector("#logoutButton"),
 };
 
 init();
 
 async function init() {
+  await checkAuth();
+}
+
+async function checkAuth() {
+  try {
+    const resp = await fetch("/api/check");
+    const data = await resp.json();
+    if (data.authed) {
+      await showApp();
+      return;
+    }
+    els.loginTitle.textContent = data.has_password ? "登录" : "设置访问密码";
+    els.loginHint.textContent = data.has_password ? "请输入密码" : "首次使用请设置密码，后续凭此密码登录";
+    els.loginOverlay.style.display = "flex";
+  } catch {
+    els.loginTitle.textContent = "登录";
+    els.loginOverlay.style.display = "flex";
+  }
+}
+
+async function showApp() {
+  els.loginOverlay.style.display = "none";
+  els.mainApp.style.display = "";
   setDefaultFormDate();
   bindEvents();
   await loadConfig();
@@ -64,16 +99,18 @@ function bindEvents() {
   els.exportCsv.addEventListener("click", exportCsv);
   els.exportXlsx.addEventListener("click", exportXlsx);
   els.importXlsx.addEventListener("change", importXlsx);
-
   els.cameraInput.addEventListener("change", recognizePhoto);
-
-  els.saveConfig.addEventListener("click", saveConfig);
-  els.toggleConfig.addEventListener("click", () => {
-    const body = els.configBar.querySelector("label");
-    const btn = els.toggleConfig;
-    const hidden = body.style.display === "none";
-    body.style.display = hidden ? "" : "none";
-    btn.textContent = hidden ? "▲" : "▼";
+  els.settingsBtn.addEventListener("click", () => {
+    els.settingsOverlay.style.display = "flex";
+  });
+  els.closeSettings.addEventListener("click", () => {
+    els.settingsOverlay.style.display = "none";
+  });
+  els.saveSettings.addEventListener("click", saveSettings);
+  els.logoutButton.addEventListener("click", logout);
+  els.loginForm.addEventListener("submit", login);
+  els.settingsOverlay.addEventListener("click", (e) => {
+    if (e.target === els.settingsOverlay) els.settingsOverlay.style.display = "none";
   });
 
   els.dayTable.addEventListener("click", async (event) => {
@@ -83,18 +120,105 @@ function bindEvents() {
   });
 }
 
-async function loadRecords() {
-  const response = await fetch("/api/records");
-  if (!response.ok) {
-    showMessage("数据读取失败", true);
+async function login(e) {
+  e.preventDefault();
+  const password = els.loginPassword.value;
+  if (!password) return;
+
+  els.loginSubmit.disabled = true;
+  els.loginSubmit.textContent = "验证中...";
+
+  try {
+    const resp = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      els.loginError.textContent = data.error || "登录失败";
+      return;
+    }
+    els.loginError.textContent = "";
+    els.loginPassword.value = "";
+    await showApp();
+  } catch {
+    els.loginError.textContent = "网络异常";
+  } finally {
+    els.loginSubmit.disabled = false;
+    els.loginSubmit.textContent = "确定";
+  }
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" });
+  els.mainApp.style.display = "none";
+  els.settingsOverlay.style.display = "none";
+  els.loginOverlay.style.display = "flex";
+  const resp = await fetch("/api/check");
+  const data = await resp.json();
+  els.loginTitle.textContent = data.has_password ? "登录" : "设置访问密码";
+  els.loginHint.textContent = data.has_password ? "请输入密码" : "首次使用请设置密码，后续凭此密码登录";
+}
+
+async function loadConfig() {
+  try {
+    const resp = await fetch("/api/config");
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    els.settingsDataPath.value = cfg.data_path || "";
+  } catch { /* ignore */ }
+}
+
+async function saveSettings() {
+  const dataPath = els.settingsDataPath.value.trim();
+  const newPassword = els.settingsNewPassword.value;
+  const oldPassword = els.settingsOldPassword.value;
+
+  if (!dataPath) {
+    els.settingsMessage.textContent = "数据路径不能为空";
+    els.settingsMessage.style.color = "var(--coral)";
     return;
   }
-  const data = await response.json();
-  state.records = data.records || [];
-  state.issues = data.issues || [];
-  buildMonthOptions();
-  setDefaultFormDate();
-  render();
+
+  try {
+    const resp = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        data_path: dataPath,
+        new_password: newPassword || null,
+        old_password: oldPassword || null,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      els.settingsMessage.textContent = data.error || "保存失败";
+      els.settingsMessage.style.color = "var(--coral)";
+      return;
+    }
+    els.settingsMessage.textContent = newPassword ? "配置和密码已更新" : "配置已保存，数据已刷新";
+    els.settingsMessage.style.color = "var(--teal)";
+    els.settingsOldPassword.value = "";
+    els.settingsNewPassword.value = "";
+    await loadRecords();
+  } catch {
+    els.settingsMessage.textContent = "网络异常";
+    els.settingsMessage.style.color = "var(--coral)";
+  }
+}
+
+async function loadRecords() {
+  try {
+    const response = await fetch("/api/records");
+    if (!response.ok) return;
+    const data = await response.json();
+    state.records = data.records || [];
+    state.issues = data.issues || [];
+    buildMonthOptions();
+    setDefaultFormDate();
+    render();
+  } catch { /* ignore */ }
 }
 
 function buildMonthOptions() {
@@ -283,33 +407,41 @@ async function submitRecord(event) {
   addNumber(record, "diastolic", form.get("diastolic"));
   addNumber(record, "pulse", form.get("pulse"));
 
-  const response = await fetch("/api/records", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(record),
-  });
+  try {
+    const response = await fetch("/api/records", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(record),
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "保存失败" }));
-    showMessage(error.error || "保存失败", true);
-    return;
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: "保存失败" }));
+      showMessage(error.error || "保存失败", true);
+      return;
+    }
+
+    els.form.reset();
+    setDefaultFormDate();
+    state.month = record.date.slice(0, 7);
+    showMessage("已保存");
+    await loadRecords();
+  } catch {
+    showMessage("网络异常", true);
   }
-
-  els.form.reset();
-  setDefaultFormDate();
-  state.month = record.date.slice(0, 7);
-  showMessage("已保存");
-  await loadRecords();
 }
 
 async function deleteRecord(id) {
-  const response = await fetch(`/api/records/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (!response.ok) {
-    showMessage("删除失败", true);
-    return;
+  try {
+    const response = await fetch(`/api/records/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) {
+      showMessage("删除失败", true);
+      return;
+    }
+    showMessage("已删除");
+    await loadRecords();
+  } catch {
+    showMessage("网络异常", true);
   }
-  showMessage("已删除");
-  await loadRecords();
 }
 
 function exportCsv() {
@@ -347,20 +479,24 @@ async function importXlsx(event) {
 
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch("/api/records.xlsx", {
-    method: "POST",
-    body: form,
-  });
-  event.target.value = "";
+  try {
+    const response = await fetch("/api/records.xlsx", {
+      method: "POST",
+      body: form,
+    });
+    event.target.value = "";
 
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    showMessage(result.error || "导入失败", true);
-    return;
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showMessage(result.error || "导入失败", true);
+      return;
+    }
+
+    showMessage(`已导入 ${result.imported || 0} 条，跳过 ${result.skipped || 0} 条`);
+    await loadRecords();
+  } catch {
+    showMessage("网络异常", true);
   }
-
-  showMessage(`已导入 ${result.imported || 0} 条，跳过 ${result.skipped || 0} 条`);
-  await loadRecords();
 }
 
 async function recognizePhoto(event) {
@@ -497,43 +633,4 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-async function loadConfig() {
-  const response = await fetch("/api/config");
-  if (!response.ok) return;
-  const cfg = await response.json();
-  els.dataPathInput.value = cfg.data_path || "";
-}
-
-async function saveConfig() {
-  const dataPath = els.dataPathInput.value.trim();
-  if (!dataPath) {
-    showConfigMessage("数据路径不能为空", true);
-    return;
-  }
-
-  const response = await fetch("/api/config", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data_path: dataPath }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "保存配置失败" }));
-    showConfigMessage(error.error || "保存配置失败", true);
-    return;
-  }
-
-  showConfigMessage("配置已保存，数据已刷新");
-  await loadRecords();
-}
-
-function showConfigMessage(message, isError = false) {
-  els.configMessage.textContent = message;
-  els.configMessage.style.color = isError ? "var(--coral)" : "var(--teal)";
-  clearTimeout(showConfigMessage.timer);
-  showConfigMessage.timer = setTimeout(() => {
-    els.configMessage.textContent = "";
-  }, 3000);
 }

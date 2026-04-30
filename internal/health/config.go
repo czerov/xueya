@@ -1,12 +1,17 @@
 package health
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 )
 
 type Config struct {
 	DataPath string `json:"data_path"`
+	Password string `json:"password"`
+	Salt     string `json:"salt"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -27,4 +32,27 @@ func (c Config) Save(path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+func (c Config) CheckPassword(password string) bool {
+	if c.Password == "" || c.Salt == "" {
+		return false
+	}
+	return c.Password == hashPassword(password, c.Salt)
+}
+
+func (c *Config) SetPassword(password string) error {
+	saltBytes := make([]byte, 16)
+	if _, err := rand.Read(saltBytes); err != nil {
+		return err
+	}
+	salt := hex.EncodeToString(saltBytes)
+	c.Salt = salt
+	c.Password = hashPassword(password, salt)
+	return nil
+}
+
+func hashPassword(password, salt string) string {
+	hash := sha256.Sum256([]byte(salt + password))
+	return hex.EncodeToString(hash[:])
 }
