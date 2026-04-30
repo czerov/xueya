@@ -2,8 +2,7 @@ services:
   xueya:
     image: ghcr.io/czerov/xueya:latest
     container_name: xueya
-    ports:
-      - "6644:6644"
+    network_mode: host
     environment:
       ADDR: ":6644"
       # 拍照识别（可选，不配则用演示数据）
