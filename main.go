@@ -163,11 +163,12 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 
 	result, err := callVisionAPI(dataURL)
 	if err != nil {
-		log.Printf("vision API: %v", err)
+		log.Printf("拍照识别失败: %v", err)
 		writeError(w, http.StatusInternalServerError, "识别失败: "+err.Error())
 		return
 	}
 
+	log.Printf("拍照识别成功: %v", result)
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -176,13 +177,15 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 	apiKey := strings.TrimSpace(os.Getenv("VISION_API_KEY"))
 
 	if apiURL == "" || apiKey == "" {
-		return map[string]any{
+		result := map[string]any{
 			"systolic":       120,
 			"diastolic":      80,
 			"pulse":          75,
 			"dynamicGlucose": 5.5,
 			"_mock":          true,
-		}, nil
+		}
+		log.Printf("拍照识别（演示模式）: %v", result)
+		return result, nil
 	}
 
 	systemPrompt := "你是一个精准的医疗数据提取助手。请分析用户上传的健康仪器屏幕照片，提取可见的数值。严格只输出一个干净的 JSON 对象，键名用英文 camelCase：systolic (收缩压, 单位 mmHg), diastolic (舒张压, 单位 mmHg), pulse (心率, 单位 bpm), dynamicGlucose (动态血糖, 单位 mmol/L), fingerGlucose (扎手指血糖, 单位 mmol/L)。如果某项数值无法读取，不要输出该字段。禁止输出任何解释、注释或 markdown。"
