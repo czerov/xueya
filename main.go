@@ -79,6 +79,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load web files: %v", err)
 	}
+	fileServer := http.FileServer(http.FS(webRoot))
 
 	api := &apiServer{
 		store:    store,
@@ -99,7 +100,7 @@ func main() {
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("/", http.FileServer(http.FS(webRoot)))
+	mux.Handle("/", noStore(fileServer))
 
 	addr := env("ADDR", ":6644")
 	log.Printf("blood glucose and pressure app listening on %s", addr)
@@ -113,6 +114,13 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
@@ -194,10 +202,10 @@ func (s *apiServer) logout(w http.ResponseWriter, r *http.Request) {
 		s.sessionMu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
+		Name:   "session",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
@@ -270,12 +278,12 @@ func (s *apiServer) config(w http.ResponseWriter, r *http.Request) {
 		})
 	case http.MethodPost:
 		var req struct {
-			DataPath     string `json:"data_path"`
-			NewPassword  string `json:"new_password"`
-			OldPassword  string `json:"old_password"`
-			VisionURL    string `json:"vision_url"`
-			VisionKey    string `json:"vision_key"`
-			VisionModel  string `json:"vision_model"`
+			DataPath    string `json:"data_path"`
+			NewPassword string `json:"new_password"`
+			OldPassword string `json:"old_password"`
+			VisionURL   string `json:"vision_url"`
+			VisionKey   string `json:"vision_key"`
+			VisionModel string `json:"vision_model"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
