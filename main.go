@@ -188,7 +188,7 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 		return result, nil
 	}
 
-	systemPrompt := "你是一个精准的医疗数据提取助手。请分析用户上传的健康仪器屏幕照片，提取可见的数值。严格只输出一个干净的 JSON 对象，键名用英文 camelCase：systolic (收缩压, 单位 mmHg), diastolic (舒张压, 单位 mmHg), pulse (心率, 单位 bpm), dynamicGlucose (动态血糖, 单位 mmol/L), fingerGlucose (扎手指血糖, 单位 mmol/L)。如果某项数值无法读取，不要输出该字段。禁止输出任何解释、注释或 markdown。"
+	systemPrompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，提取屏幕中显示的全部测量数值。常见设备布局：血压计显示收缩压(SYS)、舒张压(DIA)、心率(PULSE)；血糖仪可能显示最近多次测量结果（带日期/时间标签）。严格只输出一个干净的 JSON 对象，键名用英文 camelCase：systolic (收缩压, 单位 mmHg), diastolic (舒张压, 单位 mmHg), pulse (心率, 单位 bpm), dynamicGlucose (动态血糖, 单位 mmol/L), fingerGlucose (扎手指血糖, 单位 mmol/L)。如果某项数值无法读取，不要输出该字段。如果屏幕包含多条血糖记录，请分别标注。禁止输出任何解释、注释或 markdown。"
 
 	model := strings.TrimSpace(os.Getenv("VISION_MODEL"))
 	if model == "" {
@@ -214,7 +214,7 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 				},
 			},
 		},
-		"max_tokens":      300,
+		"max_tokens":      600,
 		"temperature":     0,
 		"enable_thinking": false,
 	}
