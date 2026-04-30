@@ -103,11 +103,13 @@ func env(key, fallback string) string {
 func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	hasPassword := s.cfg.Password != ""
+	username := s.cfg.Username
+	authed := s.validSession(r)
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"has_password": hasPassword,
-		"username":     s.cfg.Username,
-		"authed":       s.validSession(r),
+		"username":     username,
+		"authed":       authed,
 	})
 }
 
@@ -145,8 +147,11 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		s.cfg = cfg
 		s.mu.Unlock()
 		if err := cfg.Save(s.cfgPath); err != nil {
-			log.Printf("save config: %v", err)
+			log.Printf("save config after setup: %v", err)
+			writeError(w, http.StatusInternalServerError, "保存配置失败，请检查磁盘权限")
+			return
 		}
+		log.Printf("user %s setup completed, config saved to %s", req.Username, s.cfgPath)
 	} else if cfg.Username != req.Username || !cfg.CheckPassword(req.Password) {
 		writeError(w, http.StatusUnauthorized, "用户名或密码错误")
 		return
