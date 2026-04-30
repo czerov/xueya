@@ -54,15 +54,15 @@ func main() {
 	}
 	cfg.DataPath = dataPath
 
-	if cfg.Password == "" {
-		loginUser := os.Getenv("LOGIN_USER")
-		loginPass := os.Getenv("LOGIN_PASS")
-		if loginUser != "" && loginPass != "" {
+	loginUser := strings.TrimSpace(os.Getenv("LOGIN_USER"))
+	loginPass := os.Getenv("LOGIN_PASS")
+	if loginUser != "" && loginPass != "" {
+		if cfg.Username != loginUser || !cfg.CheckPassword(loginPass) {
 			cfg.Username = loginUser
 			if err := cfg.SetPassword(loginPass); err != nil {
 				log.Fatalf("set password from env: %v", err)
 			}
-			log.Printf("auto-configured user %s from environment", loginUser)
+			log.Printf("configured user %s from environment", loginUser)
 		}
 	}
 
