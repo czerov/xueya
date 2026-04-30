@@ -158,7 +158,7 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400 * 7,
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})

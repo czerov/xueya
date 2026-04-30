@@ -61,13 +61,22 @@ async function checkAuth() {
       await showApp();
       return;
     }
-    els.loginTitle.textContent = data.has_password ? "登录" : "设置访问密码";
-    els.loginHint.textContent = data.has_password ? "请输入密码" : "首次使用请设置密码，后续凭此密码登录";
-    els.loginOverlay.style.display = "flex";
+    showLogin(data);
   } catch {
-    els.loginTitle.textContent = "登录";
-    els.loginOverlay.style.display = "flex";
+    showLogin({ has_password: false });
   }
+}
+
+function showLogin(data) {
+  els.mainApp.style.display = "none";
+  els.loginTitle.textContent = data.has_password ? "登录" : "设置用户名和密码";
+  els.loginHint.textContent = data.has_password ? "请输入用户名和密码" : "首次使用请设置用户名和密码";
+  els.loginOverlay.style.display = "flex";
+}
+
+function toLogin() {
+  els.mainApp.style.display = "none";
+  checkAuth();
 }
 
 async function showApp() {
@@ -157,13 +166,10 @@ async function login(e) {
 
 async function logout() {
   await fetch("/api/logout", { method: "POST" });
-  els.mainApp.style.display = "none";
   els.settingsOverlay.style.display = "none";
-  els.loginOverlay.style.display = "flex";
   const resp = await fetch("/api/check");
-  const data = await resp.json();
-  els.loginTitle.textContent = data.has_password ? "登录" : "设置访问密码";
-  els.loginHint.textContent = data.has_password ? "请输入密码" : "首次使用请设置密码，后续凭此密码登录";
+  const data = await resp.json().catch(() => ({}));
+  showLogin(data);
 }
 
 async function loadConfig() {
@@ -225,7 +231,10 @@ async function saveSettings() {
 async function loadRecords() {
   try {
     const response = await fetch("/api/records");
-    if (!response.ok) return;
+    if (!response.ok) {
+      if (response.status === 401) return toLogin();
+      return;
+    }
     const data = await response.json();
     state.records = data.records || [];
     state.issues = data.issues || [];
