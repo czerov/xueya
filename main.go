@@ -187,7 +187,7 @@ func callVisionAPI(imageDataURL string) ([]map[string]any, error) {
 		return result, nil
 	}
 
-	systemPrompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，提取屏幕中显示的全部测量数值。常见情况：血糖仪屏幕可能同时显示最近 3~7 天的测量结果（每行含日期和血糖值）；血压计屏幕通常仅显示当前一次测量（收缩压/舒张压/心率）。请严格返回一个 JSON 数组，每个元素是一个对象，键名用英文 camelCase：systolic (收缩压, mmHg), diastolic (舒张压, mmHg), pulse (心率, bpm), dynamicGlucose (动态血糖, mmol/L), fingerGlucose (扎手指血糖, mmol/L)。如某项数值无法读取则不输出该字段。禁止输出任何解释、注释或 markdown。"
+	systemPrompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，逐条提取屏幕中显示的全部测量记录。常见情况：血糖仪屏幕通常显示最近 3~7 天历史，每行包含日期（如 04/28）、时间（如 08:30）和血糖值；血压计屏幕通常仅显示当前一次测量。请严格返回一个 JSON 数组，每个元素是一个对象，键名用英文 camelCase：date (日期, YYYY-MM-DD 格式), time (时间, HH:MM 格式), systolic (收缩压, mmHg), diastolic (舒张压, mmHg), pulse (心率, bpm), dynamicGlucose (动态血糖, mmol/L), fingerGlucose (扎手指血糖, mmol/L)。尽量还原屏幕上的原始日期和时间。如某项无法读取则不输出该字段。禁止输出任何解释、注释或 markdown。"
 
 	model := strings.TrimSpace(os.Getenv("VISION_MODEL"))
 	if model == "" {

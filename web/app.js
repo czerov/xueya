@@ -395,6 +395,8 @@ async function recognizePhoto(event) {
     }
 
     const first = records[0];
+    if (first.date) els.form.elements.date.value = first.date;
+    if (first.time) els.form.elements.time.value = first.time;
     if (first.dynamicGlucose != null) els.form.elements.dynamicGlucose.value = first.dynamicGlucose;
     if (first.fingerGlucose != null) els.form.elements.fingerGlucose.value = first.fingerGlucose;
     if (first.systolic != null) els.form.elements.systolic.value = first.systolic;
@@ -425,9 +427,10 @@ async function recognizePhoto(event) {
 }
 
 function buildRecord(data) {
+  const today = new Date().toISOString().slice(0, 10);
   return {
-    date: els.form.elements.date.value,
-    time: els.form.elements.time.value || null,
+    date: data.date || els.form.elements.date.value || today,
+    time: data.time || els.form.elements.time.value || null,
     segment: els.form.elements.segment.value,
     dynamicGlucose: data.dynamicGlucose ?? null,
     fingerGlucose: data.fingerGlucose ?? null,
