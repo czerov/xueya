@@ -24,6 +24,11 @@ import (
 //go:embed web/*
 var webFiles embed.FS
 
+var (
+	appVersion = "0.1.1"
+	gitCommit  = "dev"
+)
+
 type apiServer struct {
 	mu        sync.RWMutex
 	store     *health.Store
@@ -74,6 +79,17 @@ func main() {
 	if err := cfg.Save(cfgPath); err != nil {
 		log.Printf("save config: %v", err)
 	}
+	log.Printf(
+		"xueya version=%s commit=%s config=%s data=%s login_user_set=%t login_pass_set=%t has_password=%t username=%s",
+		appVersion,
+		gitCommit,
+		cfgPath,
+		dataPath,
+		loginUser != "",
+		loginPass != "",
+		cfg.Password != "",
+		cfg.Username,
+	)
 
 	webRoot, err := fs.Sub(webFiles, "web")
 	if err != nil {
@@ -92,6 +108,7 @@ func main() {
 	mux.HandleFunc("/api/login", api.login)
 	mux.HandleFunc("/api/logout", api.logout)
 	mux.HandleFunc("/api/check", api.check)
+	mux.HandleFunc("/api/version", api.version)
 	mux.HandleFunc("/api/config", api.auth(api.config))
 	mux.HandleFunc("/api/records", api.auth(api.records))
 	mux.HandleFunc("/api/records.xlsx", api.auth(api.recordsXLSX))
@@ -130,9 +147,30 @@ func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
 	authed := s.validSession(r)
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"has_password": hasPassword,
-		"username":     username,
-		"authed":       authed,
+		"has_password":         hasPassword,
+		"username":             username,
+		"authed":               authed,
+		"version":              appVersion,
+		"commit":               gitCommit,
+		"env_login_configured": os.Getenv("LOGIN_USER") != "" && os.Getenv("LOGIN_PASS") != "",
+	})
+}
+
+func (s *apiServer) version(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+		return
+	}
+	s.mu.RLock()
+	hasPassword := s.cfg.Password != ""
+	username := s.cfg.Username
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":              appVersion,
+		"commit":               gitCommit,
+		"has_password":         hasPassword,
+		"username":             username,
+		"env_login_configured": os.Getenv("LOGIN_USER") != "" && os.Getenv("LOGIN_PASS") != "",
 	})
 }
 

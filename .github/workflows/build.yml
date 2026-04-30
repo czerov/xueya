@@ -14,7 +14,7 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE_VERSION: 0.1.0
+      IMAGE_VERSION: 0.1.1
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +42,9 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            APP_VERSION=${{ env.IMAGE_VERSION }}
+            GIT_COMMIT=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ env.IMAGE_VERSION }}

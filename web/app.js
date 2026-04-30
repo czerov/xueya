@@ -43,6 +43,7 @@ const els = {
   loginPassword: document.querySelector("#loginPassword"),
   loginSubmit: document.querySelector("#loginSubmit"),
   loginError: document.querySelector("#loginError"),
+  buildVersion: document.querySelector("#buildVersion"),
   mainApp: document.querySelector("#mainApp"),
   settingsBtn: document.querySelector("#settingsBtn"),
   settingsOverlay: document.querySelector("#settingsOverlay"),
@@ -81,6 +82,7 @@ async function checkAuth() {
     const resp = await api("/api/check");
     const data = await resp.json();
     console.log("checkAuth:", data);
+    setBuildVersion(data);
     if (data.authed) {
       await showApp();
       authBusy = false;
@@ -96,11 +98,19 @@ async function checkAuth() {
 
 function showLogin(data) {
   els.mainApp.style.display = "none";
+  setBuildVersion(data);
   const needsSetup = !data?.has_password;
   els.loginTitle.textContent = needsSetup ? "设置访问密码" : "登录";
   els.loginHint.textContent = needsSetup ? "首次使用请设置用户名和密码，后续凭此登录" : "请输入用户名和密码";
   els.loginPassword.autocomplete = needsSetup ? "new-password" : "current-password";
   els.loginOverlay.style.display = "flex";
+}
+
+function setBuildVersion(data) {
+  if (!els.buildVersion) return;
+  const version = data?.version || "0.1.1";
+  const commit = data?.commit && data.commit !== "dev" ? ` ${data.commit.slice(0, 7)}` : "";
+  els.buildVersion.textContent = `v${version}${commit}`;
 }
 
 function toLogin() {

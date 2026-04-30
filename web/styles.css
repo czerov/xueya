@@ -513,6 +513,14 @@ label select {
   color: var(--coral);
 }
 
+.build-version {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
