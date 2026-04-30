@@ -1,6 +1,13 @@
 const segmentOrder = ["早上", "中午", "下午", "晚上"];
 
-const api = (url, opts = {}) => fetch(url, { ...opts, credentials: "same-origin" });
+function api(url, opts = {}) {
+  opts.credentials = "same-origin";
+  const token = localStorage.getItem("token");
+  if (token) {
+    opts.headers = { ...opts.headers, Authorization: "Bearer " + token };
+  }
+  return fetch(url, opts);
+}
 
 const state = {
   records: [],
@@ -156,7 +163,7 @@ async function login(e) {
   els.loginSubmit.textContent = "验证中...";
 
   try {
-    const resp = await api("/api/login", {
+    const resp = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -165,6 +172,9 @@ async function login(e) {
     if (!resp.ok) {
       els.loginError.textContent = data.error || "登录失败";
       return;
+    }
+    if (data.token) {
+      localStorage.setItem("token", data.token);
     }
     els.loginError.textContent = "";
     els.loginPassword.value = "";
@@ -178,9 +188,10 @@ async function login(e) {
 }
 
 async function logout() {
-  await api("/api/logout", { method: "POST" });
+  localStorage.removeItem("token");
+  await fetch("/api/logout", { method: "POST" });
   els.settingsOverlay.style.display = "none";
-  const resp = await api("/api/check");
+  const resp = await fetch("/api/check");
   const data = await resp.json().catch(() => ({}));
   showLogin(data);
 }
@@ -245,7 +256,7 @@ async function loadRecords() {
   try {
     const response = await api("/api/records");
     if (!response.ok) {
-      if (response.status === 401) return toLogin();
+      if (response.status === 401) { localStorage.removeItem("token"); return toLogin(); }
       return;
     }
     const data = await response.json();
@@ -468,7 +479,7 @@ async function submitRecord(event) {
 
 async function deleteRecord(id) {
   try {
-    const response = await fetch(`/api/records/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await api(`/api/records/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!response.ok) {
       showMessage("删除失败", true);
       return;

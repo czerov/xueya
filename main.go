@@ -169,7 +169,10 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400 * 7,
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"ok":    "true",
+		"token": token,
+	})
 }
 
 func (s *apiServer) logout(w http.ResponseWriter, r *http.Request) {
@@ -198,6 +201,17 @@ func (s *apiServer) auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *apiServer) validSession(r *http.Request) bool {
+	if token := bearerToken(r); token != "" {
+		s.sessionMu.Lock()
+		expiry, ok := s.sessions[token]
+		if ok && time.Now().Before(expiry) {
+			s.sessionMu.Unlock()
+			return true
+		}
+		delete(s.sessions, token)
+		s.sessionMu.Unlock()
+	}
+
 	cookie, err := r.Cookie("session")
 	if err != nil {
 		return false
@@ -211,6 +225,14 @@ func (s *apiServer) validSession(r *http.Request) bool {
 	delete(s.sessions, cookie.Value)
 	s.sessionMu.Unlock()
 	return false
+}
+
+func bearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(auth[7:])
 }
 
 func (s *apiServer) newSession() string {
