@@ -53,18 +53,24 @@ async function init() {
   await checkAuth();
 }
 
+let authBusy = false;
+
 async function checkAuth() {
+  if (authBusy) return;
+  authBusy = true;
   try {
     const resp = await fetch("/api/check");
     const data = await resp.json();
     if (data.authed) {
       await showApp();
+      authBusy = false;
       return;
     }
     showLogin(data);
   } catch {
     showLogin({ has_password: false });
   }
+  authBusy = false;
 }
 
 function showLogin(data) {
@@ -76,6 +82,7 @@ function showLogin(data) {
 
 function toLogin() {
   els.mainApp.style.display = "none";
+  els.settingsOverlay.style.display = "none";
   checkAuth();
 }
 
@@ -88,7 +95,11 @@ async function showApp() {
   await loadRecords();
 }
 
+let eventsBound = false;
+
 function bindEvents() {
+  if (eventsBound) return;
+  eventsBound = true;
   els.monthSelect.addEventListener("change", () => {
     state.month = els.monthSelect.value;
     render();
