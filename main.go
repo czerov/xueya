@@ -169,26 +169,25 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("拍照识别成功: %v", result)
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, map[string]any{"records": result})
 }
 
-func callVisionAPI(imageDataURL string) (map[string]any, error) {
+func callVisionAPI(imageDataURL string) ([]map[string]any, error) {
 	apiURL := strings.TrimSpace(os.Getenv("VISION_API_URL"))
 	apiKey := strings.TrimSpace(os.Getenv("VISION_API_KEY"))
 
 	if apiURL == "" || apiKey == "" {
-		result := map[string]any{
+		result := []map[string]any{{
 			"systolic":       120,
 			"diastolic":      80,
 			"pulse":          75,
 			"dynamicGlucose": 5.5,
-			"_mock":          true,
-		}
+		}}
 		log.Printf("拍照识别（演示模式）: %v", result)
 		return result, nil
 	}
 
-	systemPrompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，提取屏幕中显示的全部测量数值。常见设备布局：血压计显示收缩压(SYS)、舒张压(DIA)、心率(PULSE)；血糖仪可能显示最近多次测量结果（带日期/时间标签）。严格只输出一个干净的 JSON 对象，键名用英文 camelCase：systolic (收缩压, 单位 mmHg), diastolic (舒张压, 单位 mmHg), pulse (心率, 单位 bpm), dynamicGlucose (动态血糖, 单位 mmol/L), fingerGlucose (扎手指血糖, 单位 mmol/L)。如果某项数值无法读取，不要输出该字段。如果屏幕包含多条血糖记录，请分别标注。禁止输出任何解释、注释或 markdown。"
+	systemPrompt := "你是一个精准的医疗数据提取助手。请仔细分析用户上传的健康仪器 LCD 屏幕照片，提取屏幕中显示的全部测量数值。常见情况：血糖仪屏幕可能同时显示最近 3~7 天的测量结果（每行含日期和血糖值）；血压计屏幕通常仅显示当前一次测量（收缩压/舒张压/心率）。请严格返回一个 JSON 数组，每个元素是一个对象，键名用英文 camelCase：systolic (收缩压, mmHg), diastolic (舒张压, mmHg), pulse (心率, bpm), dynamicGlucose (动态血糖, mmol/L), fingerGlucose (扎手指血糖, mmol/L)。如某项数值无法读取则不输出该字段。禁止输出任何解释、注释或 markdown。"
 
 	model := strings.TrimSpace(os.Getenv("VISION_MODEL"))
 	if model == "" {
@@ -273,9 +272,17 @@ func callVisionAPI(imageDataURL string) (map[string]any, error) {
 		return nil, errors.New("API 返回内容为空")
 	}
 
-	var result map[string]any
+	var result []map[string]any
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, fmt.Errorf("parse result JSON: %w", err)
+		var single map[string]any
+		if err2 := json.Unmarshal([]byte(content), &single); err2 != nil {
+			return nil, fmt.Errorf("parse result JSON: %w", err)
+		}
+		result = []map[string]any{single}
+	}
+
+	if len(result) == 0 {
+		return nil, errors.New("未识别到任何数值")
 	}
 
 	return result, nil

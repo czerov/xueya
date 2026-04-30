@@ -372,35 +372,69 @@ async function recognizePhoto(event) {
   label.textContent = "识别中...";
   label.style.pointerEvents = "none";
 
-  const form = new FormData();
-  form.append("file", file);
+  const formData = new FormData();
+  formData.append("file", file);
 
   try {
     const response = await fetch("/api/recognize", {
       method: "POST",
-      body: form,
+      body: formData,
     });
     event.target.value = "";
 
-    const result = await response.json();
+    const payload = await response.json();
     if (!response.ok) {
-      showMessage(result.error || "识别失败", true);
+      showMessage(payload.error || "识别失败", true);
       return;
     }
 
-    if (result.dynamicGlucose != null) els.form.elements.dynamicGlucose.value = result.dynamicGlucose;
-    if (result.fingerGlucose != null) els.form.elements.fingerGlucose.value = result.fingerGlucose;
-    if (result.systolic != null) els.form.elements.systolic.value = result.systolic;
-    if (result.diastolic != null) els.form.elements.diastolic.value = result.diastolic;
-    if (result.pulse != null) els.form.elements.pulse.value = result.pulse;
+    const records = payload.records || [];
+    if (!records.length) {
+      showMessage("未识别到任何数值", true);
+      return;
+    }
 
-    showMessage(result._mock ? "识别成功（演示数据）" : "识别成功，请核对数据");
+    const first = records[0];
+    if (first.dynamicGlucose != null) els.form.elements.dynamicGlucose.value = first.dynamicGlucose;
+    if (first.fingerGlucose != null) els.form.elements.fingerGlucose.value = first.fingerGlucose;
+    if (first.systolic != null) els.form.elements.systolic.value = first.systolic;
+    if (first.diastolic != null) els.form.elements.diastolic.value = first.diastolic;
+    if (first.pulse != null) els.form.elements.pulse.value = first.pulse;
+
+    if (records.length > 1) {
+      let saved = 0;
+      for (let i = 1; i < records.length; i++) {
+        const record = buildRecord(records[i]);
+        const res = await fetch("/api/records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(record),
+        });
+        if (res.ok) saved++;
+      }
+      showMessage(`识别 ${records.length} 条，已自动保存 ${saved} 条，第1条已填入表单`);
+    } else {
+      showMessage("识别成功，请核对数据");
+    }
   } catch {
     showMessage("网络异常，识别失败", true);
   } finally {
     label.textContent = originalText;
     label.style.pointerEvents = "";
   }
+}
+
+function buildRecord(data) {
+  return {
+    date: els.form.elements.date.value,
+    time: els.form.elements.time.value || null,
+    segment: els.form.elements.segment.value,
+    dynamicGlucose: data.dynamicGlucose ?? null,
+    fingerGlucose: data.fingerGlucose ?? null,
+    systolic: data.systolic ?? null,
+    diastolic: data.diastolic ?? null,
+    pulse: data.pulse ?? null,
+  };
 }
 
 function filterParams() {
