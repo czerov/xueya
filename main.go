@@ -321,18 +321,6 @@ func (s *apiServer) validSession(r *http.Request) bool {
 		}
 	}
 
-	cookie, err := r.Cookie("session")
-	if err != nil {
-		return false
-	}
-	s.sessionMu.Lock()
-	expiry, ok := s.sessions[cookie.Value]
-	if ok && time.Now().Before(expiry) {
-		s.sessionMu.Unlock()
-		return true
-	}
-	delete(s.sessions, cookie.Value)
-	s.sessionMu.Unlock()
 	return false
 }
 

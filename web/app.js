@@ -60,15 +60,25 @@ async function apiJSON(url, opts = {}) {
 }
 
 function getAuthToken() {
+  // 1. 优先从 URL hash 中获取新 Token (例如登录重定向带回的)
   if (location.hash.startsWith("#token=")) {
-    authToken = decodeURIComponent(location.hash.slice("#token=".length));
-    rememberToken(authToken);
-    history.replaceState(null, "", location.pathname + location.search);
+    const newToken = decodeURIComponent(location.hash.slice("#token=".length));
+    if (newToken) {
+      authToken = newToken;
+      rememberToken(authToken);
+      history.replaceState(null, "", location.pathname + location.search);
+      return authToken;
+    }
   }
+
+  // 2. 其次使用内存缓存
   if (authToken) return authToken;
+
+  // 3. 最后尝试从 localStorage 读取
   try {
     authToken = localStorage.getItem("token") || "";
   } catch { /* localStorage unavailable */ }
+
   return authToken;
 }
 
