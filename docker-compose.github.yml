@@ -1,6 +1,6 @@
 services:
   xueya:
-    image: ghcr.io/czerov/xueya:0.1.4
+    image: ghcr.io/czerov/xueya:0.1.5
     container_name: xueya
     network_mode: host
     environment:

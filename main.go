@@ -25,7 +25,7 @@ import (
 var webFiles embed.FS
 
 var (
-	appVersion = "0.1.4"
+	appVersion = "0.1.5"
 	gitCommit  = "dev"
 )
 
@@ -151,8 +151,8 @@ func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	hasPassword := s.cfg.Password != ""
 	username := s.cfg.Username
-	authed := s.validSession(r)
 	s.mu.RUnlock()
+	authed := s.validSession(r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"has_password":         hasPassword,
 		"username":             username,
@@ -237,6 +237,21 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := s.newSession()
+	s.mu.Lock()
+	if err := s.cfg.SetSessionToken(token); err != nil {
+		s.mu.Unlock()
+		writeError(w, http.StatusInternalServerError, "创建登录会话失败")
+		return
+	}
+	cfgPath := s.cfgPath
+	cfg = s.cfg
+	s.mu.Unlock()
+	if err := cfg.Save(cfgPath); err != nil {
+		log.Printf("save session token: %v", err)
+		writeError(w, http.StatusInternalServerError, "保存登录会话失败")
+		return
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    token,
@@ -256,10 +271,18 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *apiServer) logout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie("session"); err == nil {
+	if token := requestToken(r); token != "" {
 		s.sessionMu.Lock()
-		delete(s.sessions, cookie.Value)
+		delete(s.sessions, token)
 		s.sessionMu.Unlock()
+	}
+	s.mu.Lock()
+	s.cfg.ClearSessionToken()
+	cfg := s.cfg
+	cfgPath := s.cfgPath
+	s.mu.Unlock()
+	if err := cfg.Save(cfgPath); err != nil {
+		log.Printf("clear session token: %v", err)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:   "session",
@@ -281,7 +304,7 @@ func (s *apiServer) auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *apiServer) validSession(r *http.Request) bool {
-	if token := bearerToken(r); token != "" {
+	if token := requestToken(r); token != "" {
 		s.sessionMu.Lock()
 		expiry, ok := s.sessions[token]
 		if ok && time.Now().Before(expiry) {
@@ -290,6 +313,12 @@ func (s *apiServer) validSession(r *http.Request) bool {
 		}
 		delete(s.sessions, token)
 		s.sessionMu.Unlock()
+		s.mu.RLock()
+		ok = s.cfg.CheckSessionToken(token)
+		s.mu.RUnlock()
+		if ok {
+			return true
+		}
 	}
 
 	cookie, err := r.Cookie("session")
@@ -305,6 +334,19 @@ func (s *apiServer) validSession(r *http.Request) bool {
 	delete(s.sessions, cookie.Value)
 	s.sessionMu.Unlock()
 	return false
+}
+
+func requestToken(r *http.Request) string {
+	if token := bearerToken(r); token != "" {
+		return token
+	}
+	if token := strings.TrimSpace(r.URL.Query().Get("access_token")); token != "" {
+		return token
+	}
+	if cookie, err := r.Cookie("session"); err == nil {
+		return cookie.Value
+	}
+	return ""
 }
 
 func bearerToken(r *http.Request) string {

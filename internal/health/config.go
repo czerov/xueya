@@ -14,6 +14,8 @@ type Config struct {
 	DataPath    string `json:"data_path"`
 	Password    string `json:"password"`
 	Salt        string `json:"salt"`
+	TokenHash   string `json:"token_hash"`
+	TokenSalt   string `json:"token_salt"`
 	VisionURL   string `json:"vision_url"`
 	VisionKey   string `json:"vision_key"`
 	VisionModel string `json:"vision_model"`
@@ -52,14 +54,44 @@ func (c Config) CheckPassword(password string) bool {
 }
 
 func (c *Config) SetPassword(password string) error {
-	saltBytes := make([]byte, 16)
-	if _, err := rand.Read(saltBytes); err != nil {
+	hash, salt, err := saltedHash(password)
+	if err != nil {
 		return err
 	}
-	salt := hex.EncodeToString(saltBytes)
 	c.Salt = salt
-	c.Password = hashPassword(password, salt)
+	c.Password = hash
 	return nil
+}
+
+func (c Config) CheckSessionToken(token string) bool {
+	if token == "" || c.TokenHash == "" || c.TokenSalt == "" {
+		return false
+	}
+	return c.TokenHash == hashPassword(token, c.TokenSalt)
+}
+
+func (c *Config) SetSessionToken(token string) error {
+	hash, salt, err := saltedHash(token)
+	if err != nil {
+		return err
+	}
+	c.TokenSalt = salt
+	c.TokenHash = hash
+	return nil
+}
+
+func (c *Config) ClearSessionToken() {
+	c.TokenSalt = ""
+	c.TokenHash = ""
+}
+
+func saltedHash(value string) (string, string, error) {
+	saltBytes := make([]byte, 16)
+	if _, err := rand.Read(saltBytes); err != nil {
+		return "", "", err
+	}
+	salt := hex.EncodeToString(saltBytes)
+	return hashPassword(value, salt), salt, nil
 }
 
 func hashPassword(password, salt string) string {

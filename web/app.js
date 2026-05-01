@@ -2,7 +2,7 @@ const segmentOrder = ["早上", "中午", "下午", "晚上"];
 const apiBases = ["/_xueya", "/api"];
 let activeApiBase = apiBases[0];
 let authToken = "";
-const appVersion = "0.1.4";
+const appVersion = "0.1.5";
 const requestTimeoutMs = 4500;
 
 function api(url, opts = {}, base = activeApiBase) {
@@ -15,10 +15,14 @@ function api(url, opts = {}, base = activeApiBase) {
   return fetchWithTimeout(url, opts);
 }
 
-function apiURL(url, base = activeApiBase) {
+function apiURL(url, base = activeApiBase, includeToken = true) {
   if (/^https?:\/\//i.test(url)) return url;
   const path = url.startsWith("/api/") ? url.slice(4) : url;
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  const full = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  const token = includeToken ? getAuthToken() : "";
+  if (!token) return full;
+  const separator = full.includes("?") ? "&" : "?";
+  return `${full}${separator}access_token=${encodeURIComponent(token)}`;
 }
 
 function fetchWithTimeout(url, opts = {}) {
@@ -56,15 +60,15 @@ async function apiJSON(url, opts = {}) {
 }
 
 function getAuthToken() {
-  if (authToken) return authToken;
-  try {
-    authToken = localStorage.getItem("token") || "";
-  } catch { /* localStorage unavailable */ }
-  if (!authToken && location.hash.startsWith("#token=")) {
+  if (location.hash.startsWith("#token=")) {
     authToken = decodeURIComponent(location.hash.slice("#token=".length));
     rememberToken(authToken);
     history.replaceState(null, "", location.pathname + location.search);
   }
+  if (authToken) return authToken;
+  try {
+    authToken = localStorage.getItem("token") || "";
+  } catch { /* localStorage unavailable */ }
   return authToken;
 }
 
@@ -77,6 +81,9 @@ function rememberToken(token) {
 function forgetToken() {
   authToken = "";
   try { localStorage.removeItem("token"); } catch { /* localStorage unavailable */ }
+  if (location.hash.startsWith("#token=")) {
+    history.replaceState(null, "", location.pathname + location.search);
+  }
 }
 
 const state = {
@@ -302,8 +309,8 @@ async function login(e) {
 }
 
 async function logout() {
-  forgetToken();
   await api("/logout", { method: "POST" });
+  forgetToken();
   els.settingsOverlay.style.display = "none";
   const { data } = await apiJSON("/check").catch(() => ({ data: {} }));
   showLogin(data);
@@ -635,7 +642,10 @@ function exportCsv() {
 }
 
 function exportXlsx() {
-  window.location.href = `${apiURL("/records.xlsx")}?${filterParams().toString()}`;
+  const params = filterParams();
+  const token = getAuthToken();
+  if (token) params.set("access_token", token);
+  window.location.href = `${apiURL("/records.xlsx", activeApiBase, false)}?${params.toString()}`;
 }
 
 async function importXlsx(event) {

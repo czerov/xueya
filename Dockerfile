@@ -3,7 +3,7 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /src
 COPY go.mod ./
 COPY . .
-ARG APP_VERSION=0.1.4
+ARG APP_VERSION=0.1.5
 ARG GIT_COMMIT=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION} -X main.gitCommit=${GIT_COMMIT}" -o /out/xueya .
 
