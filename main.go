@@ -461,7 +461,9 @@ func (s *apiServerReal) callVisionAPI(imageDataURL string) ([]map[string]any, er
 	log.Printf("[VisionAPI] 开始请求 AI 接口: %s, 模型: %s", apiURL, visionModel)
 
 	if apiURL == "" || apiKey == "" {
+		today := time.Now().Format("2006-01-02")
 		result := []map[string]any{{
+			"date":           today,
 			"systolic":       120,
 			"diastolic":      80,
 			"pulse":          75,

@@ -453,38 +453,45 @@
       var fd = new FormData();
       fd.append("file", file);
       showMessage("正在识别并生成记录...");
-      api("/recognize", { method: "POST", body: fd }).then(function(res) {
-        if (!res.ok) { showMessage("识别失败"); return; }
-        return readJSON(res).then(function(data) {
-          var records = data.records;
-          if (records && records.length > 0) {
-            var savedCount = 0;
-            var promises = [];
-            for (var i = 0; i < records.length; i++) {
-              (function(r) {
-                var p = apiJSON("/records", { 
-                  method: "POST", 
-                  headers: { "Content-Type": "application/json" }, 
-                  body: JSON.stringify(r) 
-                }).then(function(s) { if (s.response.ok) savedCount++; });
-                promises.push(p);
-              })(records[i]);
-            }
-            Promise.all(promises).then(function() {
+      apiJSON("/api/recognize", { method: "POST", body: fd }).then(function(rr) {
+        var data = rr.data;
+        if (!rr.response.ok) { showMessage("识别失败: " + (data.message || rr.response.status)); return; }
+        var records = data.records;
+        if (records && records.length > 0) {
+          var savedCount = 0;
+          var failCount = 0;
+          var lastError = "";
+          var promises = [];
+          for (var i = 0; i < records.length; i++) {
+            (function(r) {
+              var p = apiJSON("/records", { 
+                method: "POST", 
+                headers: { "Content-Type": "application/json" }, 
+                body: JSON.stringify(r) 
+              }).then(function(s) {
+                if (s.response.ok) { savedCount++; }
+                else { failCount++; if (s.data && s.data.message) lastError = s.data.message; }
+              });
+              promises.push(p);
+            })(records[i]);
+          }
+          Promise.all(promises).then(function() {
+            if (failCount > 0) {
+              showMessage("识别成功，但 " + failCount + " 条保存失败" + (lastError ? ": " + lastError : ""));
+            } else {
               showMessage("成功识别并生成 " + savedCount + " 条记录");
-              // 自动切换到新记录中最晚的月份，方便用户看到数据
               var latestMonth = "";
               for (var j = 0; j < records.length; j++) {
                 var m = records[j].date.slice(0, 7);
                 if (m > latestMonth) latestMonth = m;
               }
               if (latestMonth) state.month = latestMonth;
-              loadRecords();
-            });
-          } else {
-            showMessage("未识别到数据");
-          }
-        });
+            }
+            loadRecords();
+          });
+        } else {
+          showMessage("未识别到数据");
+        }
       })["catch"](function(err) {
         showMessage("网络错误: " + err);
       });
