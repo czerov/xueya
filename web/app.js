@@ -446,6 +446,33 @@
         }
       });
     };
+
+    els.cameraInput.onchange = function() {
+      if (els.cameraInput.files.length === 0) return;
+      var file = els.cameraInput.files[0];
+      var fd = new FormData();
+      fd.append("file", file);
+      showMessage("正在识别图片...");
+      api("/recognize", { method: "POST", body: fd }).then(function(res) {
+        if (!res.ok) { showMessage("识别失败"); return; }
+        return readJSON(res).then(function(data) {
+          var records = data.records;
+          if (records && records.length > 0) {
+            var r = records[0];
+            if (r.dynamicGlucose) els.form.elements.dynamicGlucose.value = r.dynamicGlucose;
+            if (r.fingerGlucose) els.form.elements.fingerGlucose.value = r.fingerGlucose;
+            if (r.systolic) els.form.elements.systolic.value = r.systolic;
+            if (r.diastolic) els.form.elements.diastolic.value = r.diastolic;
+            if (r.pulse) els.form.elements.pulse.value = r.pulse;
+            showMessage("识别成功");
+          } else {
+            showMessage("未识别到数据");
+          }
+        });
+      })["catch"](function(err) {
+        showMessage("网络错误: " + err);
+      });
+    };
   }
 
   function exportCsv() {

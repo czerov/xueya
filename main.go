@@ -593,6 +593,7 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contentType := http.DetectContentType(imageData)
+	log.Printf("[Recognize] 收到图片上传, 大小: %d 字节, 类型: %s", len(imageData), contentType)
 	if !strings.HasPrefix(contentType, "image/") {
 		writeError(w, http.StatusBadRequest, "文件不是有效图片")
 		return
@@ -612,12 +613,10 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"records": result})
 }
 
-func (s *apiServer) callVisionAPI(imageDataURL string) ([]map[string]any, error) {
-	s.mu.RLock()
-	apiURL := s.cfg.VisionURL
-	apiKey := s.cfg.VisionKey
 	visionModel := s.cfg.VisionModel
 	s.mu.RUnlock()
+
+	log.Printf("[VisionAPI] 开始请求 AI 接口: %s, 模型: %s", apiURL, visionModel)
 
 	if apiURL == "" || apiKey == "" {
 		result := []map[string]any{{
@@ -673,11 +672,14 @@ func (s *apiServer) callVisionAPI(imageDataURL string) ([]map[string]any, error)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	log.Printf("正在调用 Vision API (Model: %s, URL: %s)...", model, apiURL)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call API: %w", err)
 	}
 	defer resp.Body.Close()
+
+	log.Printf("Vision API 响应状态: %d", resp.StatusCode)
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -685,8 +687,10 @@ func (s *apiServer) callVisionAPI(imageDataURL string) ([]map[string]any, error)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[VisionAPI] 接口返回错误, 状态码: %d, 响应: %s", resp.StatusCode, string(respBody))
 		return nil, fmt.Errorf("API status %d: %s", resp.StatusCode, string(respBody))
 	}
+	log.Printf("[VisionAPI] 接口响应成功")
 
 	var openAIResp struct {
 		Choices []struct {
