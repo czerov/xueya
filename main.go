@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +46,15 @@ func main() {
 	if cfgPath == "" {
 		cfgPath = "config/config.json"
 	}
+
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		log.Fatalf("create config directory: %v", err)
+	}
+
 	cfg, err := health.LoadConfig(cfgPath)
+	if err != nil && !os.IsNotExist(err) {
+		log.Printf("load config error: %v", err)
+	}
 	if err != nil {
 		cfg = health.Config{}
 	}
@@ -58,6 +67,10 @@ func main() {
 		dataPath = "data/records.json"
 	}
 	cfg.DataPath = dataPath
+
+	if err := os.MkdirAll(filepath.Dir(dataPath), 0o755); err != nil {
+		log.Fatalf("create data directory: %v", err)
+	}
 
 	loginUser := strings.TrimSpace(os.Getenv("LOGIN_USER"))
 	loginPass := os.Getenv("LOGIN_PASS")
@@ -77,7 +90,7 @@ func main() {
 	}
 
 	if err := cfg.Save(cfgPath); err != nil {
-		log.Printf("save config: %v", err)
+		log.Fatalf("save initial config: %v", err)
 	}
 	log.Printf(
 		"xueya version=%s commit=%s config=%s data=%s login_user_set=%t login_pass_set=%t has_password=%t username=%s",
