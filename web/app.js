@@ -448,26 +448,30 @@
     };
 
     els.cameraInput.onchange = function() {
-      if (els.cameraInput.files.length === 0) return;
-      var file = els.cameraInput.files[0];
-      var fd = new FormData();
-      fd.append("file", file);
-      showMessage("正在识别并生成记录...");
-      apiJSON("/api/recognize", { method: "POST", body: fd }).then(function(rr) {
-        var data = rr.data;
-        if (!rr.response.ok) { showMessage("识别失败: " + (data.message || rr.response.status)); return; }
-        var records = data.records;
-        if (records && records.length > 0) {
+      var files = els.cameraInput.files;
+      if (files.length === 0) return;
+      var allRecords = [];
+      var recognizeFailures = 0;
+
+      function processFile(idx) {
+        if (idx >= files.length) {
+          if (allRecords.length === 0) {
+            showMessage("未识别到任何数据");
+            els.cameraInput.value = "";
+            loadRecords();
+            return;
+          }
+          showMessage("识别完成，正在保存 " + allRecords.length + " 条记录...");
           var savedCount = 0;
           var failCount = 0;
           var lastError = "";
           var promises = [];
-           for (var i = 0; i < records.length; i++) {
+          for (var i = 0; i < allRecords.length; i++) {
             (function(r) {
-              var p = api("/records", { 
-                method: "POST", 
-                headers: { "Content-Type": "application/json" }, 
-                body: JSON.stringify(r) 
+              var p = api("/records", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(r)
               }).then(function(res) {
                 if (res.ok) { savedCount++; }
                 else {
@@ -478,28 +482,46 @@
                 }
               });
               promises.push(p);
-            })(records[i]);
+            })(allRecords[i]);
           }
           Promise.all(promises).then(function() {
-            if (failCount > 0) {
-              showMessage("识别成功，但 " + failCount + " 条保存失败" + (lastError ? ": " + lastError : ""));
-            } else {
-              showMessage("成功识别并生成 " + savedCount + " 条记录");
-              var latestMonth = "";
-              for (var j = 0; j < records.length; j++) {
-                var m = records[j].date.slice(0, 7);
-                if (m > latestMonth) latestMonth = m;
-              }
-              if (latestMonth) state.month = latestMonth;
+            var msg = "成功识别并生成 " + savedCount + " 条记录";
+            if (failCount > 0) msg += "，" + failCount + " 条保存失败" + (lastError ? ": " + lastError : "");
+            if (recognizeFailures > 0) msg += " (" + recognizeFailures + " 张图片识别失败)";
+            showMessage(msg);
+            var latestMonth = "";
+            for (var j = 0; j < allRecords.length; j++) {
+              var m = allRecords[j].date.slice(0, 7);
+              if (m > latestMonth) latestMonth = m;
             }
+            if (latestMonth) state.month = latestMonth;
+            els.cameraInput.value = "";
             loadRecords();
           });
-        } else {
-          showMessage("未识别到数据");
+          return;
         }
-      })["catch"](function(err) {
-        showMessage("网络错误: " + err);
-      });
+
+        var file = files[idx];
+        var fd = new FormData();
+        fd.append("file", file);
+        showMessage("正在识别第 " + (idx + 1) + "/" + files.length + " 张图片...");
+        apiJSON("/api/recognize", { method: "POST", body: fd }).then(function(rr) {
+          var data = rr.data;
+          if (rr.response.ok && data.records && data.records.length > 0) {
+            for (var j = 0; j < data.records.length; j++) {
+              allRecords.push(data.records[j]);
+            }
+          } else {
+            recognizeFailures++;
+          }
+        })["catch"](function() {
+          recognizeFailures++;
+        }).then(function() {
+          processFile(idx + 1);
+        });
+      }
+
+      processFile(0);
     };
   }
 
