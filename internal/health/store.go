@@ -60,7 +60,6 @@ func (s *Store) Add(record Record) (Record, error) {
 	defer s.mu.Unlock()
 
 	if record.ID == "" {
-		// 使用纳秒级时间戳 + 随机数确保唯一性，防止批量录入时 ID 冲突
 		record.ID = fmt.Sprintf("manual-%d-%x", time.Now().UnixNano(), rand.Uint32())
 	}
 	record.Source = "manual"
@@ -69,6 +68,13 @@ func (s *Store) Add(record Record) (Record, error) {
 	}
 	if !record.HasMeasurements() {
 		return Record{}, errors.New("至少填写一项血糖或血压数据")
+	}
+
+	sig := recordSignature(record)
+	for _, existing := range s.records {
+		if recordSignature(existing) == sig {
+			return existing, nil
+		}
 	}
 
 	s.records = append(s.records, record)

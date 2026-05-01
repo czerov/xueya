@@ -462,15 +462,20 @@
           var failCount = 0;
           var lastError = "";
           var promises = [];
-          for (var i = 0; i < records.length; i++) {
+           for (var i = 0; i < records.length; i++) {
             (function(r) {
-              var p = apiJSON("/records", { 
+              var p = api("/records", { 
                 method: "POST", 
                 headers: { "Content-Type": "application/json" }, 
                 body: JSON.stringify(r) 
-              }).then(function(s) {
-                if (s.response.ok) { savedCount++; }
-                else { failCount++; if (s.data && s.data.message) lastError = s.data.message; }
+              }).then(function(res) {
+                if (res.ok) { savedCount++; }
+                else {
+                  failCount++;
+                  return res.text().then(function(t) {
+                    try { var d = JSON.parse(t); if (d.message) lastError = d.message; } catch(e) {}
+                  });
+                }
               });
               promises.push(p);
             })(records[i]);

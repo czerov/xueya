@@ -440,6 +440,13 @@ func (s *apiServerReal) recognize(w http.ResponseWriter, r *http.Request) {
 	b64 := base64.StdEncoding.EncodeToString(imageData)
 	dataURL := "data:" + contentType + ";base64," + b64
 
+	select {
+	case <-r.Context().Done():
+		log.Printf("客户端已断开，取消识别")
+		return
+	default:
+	}
+
 	result, err := s.callVisionAPI(dataURL)
 	if err != nil {
 		log.Printf("拍照识别失败: %v", err)
