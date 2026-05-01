@@ -452,20 +452,28 @@
       var file = els.cameraInput.files[0];
       var fd = new FormData();
       fd.append("file", file);
-      showMessage("正在识别图片...");
+      showMessage("正在识别并生成记录...");
       api("/recognize", { method: "POST", body: fd }).then(function(res) {
         if (!res.ok) { showMessage("识别失败"); return; }
         return readJSON(res).then(function(data) {
           var records = data.records;
           if (records && records.length > 0) {
-            var r = records[0];
-            var f = els.recordForm.elements;
-            if (r.dynamicGlucose != null) f.dynamicGlucose.value = r.dynamicGlucose;
-            if (r.fingerGlucose != null) f.fingerGlucose.value = r.fingerGlucose;
-            if (r.systolic != null) f.systolic.value = r.systolic;
-            if (r.diastolic != null) f.diastolic.value = r.diastolic;
-            if (r.pulse != null) f.pulse.value = r.pulse;
-            showMessage("识别成功");
+            var savedCount = 0;
+            var promises = [];
+            for (var i = 0; i < records.length; i++) {
+              (function(r) {
+                var p = apiJSON("/records", { 
+                  method: "POST", 
+                  headers: { "Content-Type": "application/json" }, 
+                  body: JSON.stringify(r) 
+                }).then(function(s) { if (s.response.ok) savedCount++; });
+                promises.push(p);
+              })(records[i]);
+            }
+            Promise.all(promises).then(function() {
+              showMessage("成功识别并生成 " + savedCount + " 条记录");
+              loadRecords();
+            });
           } else {
             showMessage("未识别到数据");
           }
