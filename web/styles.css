@@ -189,6 +189,19 @@ header {
 
 .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
+.history-filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.history-filters select, .history-filters input {
+  max-width: 160px;
+  min-width: 120px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
 input, select, textarea {
   width: 100%;
   background: var(--bg-card);

@@ -459,11 +459,12 @@
           var records = data.records;
           if (records && records.length > 0) {
             var r = records[0];
-            if (r.dynamicGlucose) els.form.elements.dynamicGlucose.value = r.dynamicGlucose;
-            if (r.fingerGlucose) els.form.elements.fingerGlucose.value = r.fingerGlucose;
-            if (r.systolic) els.form.elements.systolic.value = r.systolic;
-            if (r.diastolic) els.form.elements.diastolic.value = r.diastolic;
-            if (r.pulse) els.form.elements.pulse.value = r.pulse;
+            var f = els.recordForm.elements;
+            if (r.dynamicGlucose != null) f.dynamicGlucose.value = r.dynamicGlucose;
+            if (r.fingerGlucose != null) f.fingerGlucose.value = r.fingerGlucose;
+            if (r.systolic != null) f.systolic.value = r.systolic;
+            if (r.diastolic != null) f.diastolic.value = r.diastolic;
+            if (r.pulse != null) f.pulse.value = r.pulse;
             showMessage("识别成功");
           } else {
             showMessage("未识别到数据");
