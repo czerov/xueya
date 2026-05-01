@@ -1,182 +1,234 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>血糖血压记录</title>
-    <link rel="stylesheet" href="/styles.css">
-  </head>
-  <body>
-    <div class="login-overlay" id="loginOverlay">
-      <form class="login-card" id="loginForm" method="post" action="/_xueya/login">
-        <h2 id="loginTitle">登录</h2>
-        <p id="loginHint">请输入用户名和密码</p>
-        <input id="loginUsername" name="username" type="text" placeholder="用户名" required autocomplete="username">
-        <input id="loginPassword" name="password" type="password" placeholder="密码" required autocomplete="current-password">
-        <button type="submit" id="loginSubmit">确定</button>
-        <span id="loginError"></span>
-        <span class="build-version" id="buildVersion">v0.1.5</span>
-      </form>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>血鸭 Xueya - 极简健康数据追踪</title>
+    <meta name="description" content="极简、私密的血糖与血压追踪工具">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="overlay" style="display: none;">
+        <div class="modal">
+            <div class="login-header">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" width="32" height="32" fill="white">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                </div>
+                <h2 id="loginTitle">登录</h2>
+                <p id="loginHint">欢迎使用血鸭健康助手</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="loginUsername">用户名</label>
+                    <input type="text" id="loginUsername" placeholder="请输入用户名" required>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">密码</label>
+                    <input type="password" id="loginPassword" placeholder="请输入密码" required>
+                </div>
+                <button type="submit" id="loginSubmit" class="btn btn-primary" style="width: 100%; margin-top: 12px;">确定</button>
+                <div id="loginError" class="text-center mt-4" style="color: var(--accent); font-size: 13px;"></div>
+            </form>
+            <div class="text-center mt-4">
+                <span id="buildVersion" style="color: var(--text-dim); font-size: 11px;">v0.1.5</span>
+            </div>
+        </div>
     </div>
 
-    <div class="modal-overlay" id="settingsOverlay" style="display:none">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h2>设置</h2>
-          <button class="ghost-button" id="closeSettings" type="button">✕</button>
-        </div>
-        <label>
-          数据路径
-          <input id="settingsDataPath" type="text" placeholder="data/records.json">
-        </label>
-        <hr>
-        <label>
-          Vision API URL
-          <input id="settingsVisionURL" type="text" placeholder="https://api.siliconflow.cn/v1/chat/completions">
-        </label>
-        <label>
-          Vision API Key
-          <input id="settingsVisionKey" type="password" placeholder="sk-xxx">
-        </label>
-        <label>
-          Vision 模型
-          <input id="settingsVisionModel" type="text" placeholder="Qwen/Qwen3.6-27B">
-        </label>
-        <hr>
-        <label>
-          原密码
-          <input id="settingsOldPassword" type="password" placeholder="修改密码时需填写">
-        </label>
-        <label>
-          新密码
-          <input id="settingsNewPassword" type="password" placeholder="留空则不修改">
-        </label>
-        <button id="saveSettings" type="button">保存配置</button>
-        <span id="settingsMessage"></span>
-        <hr>
-        <button id="logoutButton" class="danger-button" type="button">退出登录</button>
-      </div>
+    <!-- Main Application -->
+    <div id="mainApp" class="app-container" style="display: none;">
+        <header>
+            <div class="brand">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="white">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                </div>
+                <h1>血鸭</h1>
+            </div>
+            <div class="header-actions" style="display: flex; gap: 12px;">
+                <button id="settingsBtn" class="btn btn-secondary btn-icon" title="设置">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.85,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <section id="summary" class="metrics-grid">
+            <!-- Metric cards will be injected here -->
+        </section>
+
+        <main class="main-layout">
+            <div class="charts-section">
+                <div class="glass-card chart-container">
+                    <div class="chart-header">
+                        <h3>血糖趋势 <span style="color: var(--glucose); font-size: 12px;">mmol/L</span></h3>
+                        <span id="rangeLabel" style="font-size: 12px; color: var(--text-dim);"></span>
+                    </div>
+                    <div id="glucoseChart"></div>
+                </div>
+                <div class="glass-card chart-container">
+                    <div class="chart-header">
+                        <h3>收缩压趋势 <span style="color: var(--pressure); font-size: 12px;">mmHg</span></h3>
+                    </div>
+                    <div id="pressureChart"></div>
+                </div>
+
+                <div id="issues"></div>
+
+                <section class="records-section">
+                    <div class="flex-between mb-4">
+                        <h3 style="font-size: 20px;">历史记录</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <select id="monthSelect" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px;"></select>
+                            <input type="date" id="dateSearch" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px;">
+                        </div>
+                    </div>
+                    
+                    <div class="segment-tabs mb-4">
+                        <button class="segment-btn active" data-segment="all">全部</button>
+                        <button class="segment-btn" data-segment="早上">早上</button>
+                        <button class="segment-btn" data-segment="中午">中午</button>
+                        <button class="segment-btn" data-segment="下午">下午</button>
+                        <button class="segment-btn" data-segment="晚上">晚上</button>
+                    </div>
+
+                    <div id="dayTable">
+                        <!-- Record rows will be injected here -->
+                    </div>
+                </section>
+            </div>
+
+            <aside class="sidebar">
+                <div class="glass-card">
+                    <h3 class="mb-4">新增记录</h3>
+                    <form id="recordForm">
+                        <div class="form-group">
+                            <label>日期</label>
+                            <input type="date" name="date" required>
+                        </div>
+                        <div class="input-row">
+                            <div class="form-group">
+                                <label>时间</label>
+                                <input type="time" name="time">
+                            </div>
+                            <div class="form-group">
+                                <label>时段</label>
+                                <select name="segment">
+                                    <option value="早上">早上</option>
+                                    <option value="中午">中午</option>
+                                    <option value="下午">下午</option>
+                                    <option value="晚上">晚上</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>血糖 (动态/扎手指)</label>
+                            <div class="input-row">
+                                <input type="number" step="0.1" name="dynamicGlucose" placeholder="动态">
+                                <input type="number" step="0.1" name="fingerGlucose" placeholder="扎手指">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>血压 (收缩/舒张/脉搏)</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                                <input type="number" name="systolic" placeholder="收缩">
+                                <input type="number" name="diastolic" placeholder="舒张">
+                                <input type="number" name="pulse" placeholder="脉搏">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>备注</label>
+                            <textarea name="note" rows="2" placeholder="备注信息..."></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            保存记录
+                        </button>
+                    </form>
+                    <div class="text-center mt-4">
+                        <label class="btn btn-secondary camera-button" style="width: 100%;">
+                            <input type="file" id="cameraInput" accept="image/*" capture="camera">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12,12m-3.2,0a3.2,3.2 0,1 0,6.4 0a3.2,3.2 0,1 0,-6.4 0M9,2L7.17,4H4c-1.1,0-2,0.9-2,2v12c0,1.1,0.9,2,2,2h16c1.1,0,2-0.9,2-2V6c0-1.1-0.9-2-2-2h-3.17L15,2H9z"/></svg>
+                            拍照识别
+                        </label>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="mb-4">数据管理</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <button id="exportCsv" class="btn btn-secondary" style="font-size: 13px;">CSV 导出</button>
+                        <button id="exportXlsx" class="btn btn-secondary" style="font-size: 13px;">Excel 导出</button>
+                    </div>
+                    <label class="btn btn-secondary mt-4" style="font-size: 13px; width: 100%; position: relative;">
+                        导入 Excel
+                        <input type="file" id="importXlsx" accept=".xlsx" style="position: absolute; inset: 0; opacity: 0; cursor: pointer;">
+                    </label>
+                </div>
+
+                <div id="message" class="text-center" style="font-size: 13px; padding: 10px; border-radius: 8px; transition: var(--transition);"></div>
+            </aside>
+        </main>
     </div>
 
-    <main class="app-shell" id="mainApp" style="display:none">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">2026 血糖血压</p>
-          <h1>每日分时记录表</h1>
-        </div>
-        <div class="top-actions">
-          <button id="settingsBtn" type="button" class="ghost-button" aria-label="设置">⚙</button>
-          <select id="monthSelect" aria-label="选择月份"></select>
-          <input id="dateSearch" type="date" aria-label="按日期筛选">
-          <button id="exportCsv" type="button">导出 CSV</button>
-          <button id="exportXlsx" type="button">导出 XLSX</button>
-          <label class="import-button">
-            导入 XLSX
-            <input id="importXlsx" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-          </label>
-        </div>
-      </header>
-
-      <section class="summary-grid" id="summary"></section>
-
-      <section class="toolbar" aria-label="时间段筛选">
-        <button class="segment-button active" type="button" data-segment="all">全部</button>
-        <button class="segment-button" type="button" data-segment="早上">早上</button>
-        <button class="segment-button" type="button" data-segment="中午">中午</button>
-        <button class="segment-button" type="button" data-segment="下午">下午</button>
-        <button class="segment-button" type="button" data-segment="晚上">晚上</button>
-      </section>
-
-      <section class="workbench">
-        <form class="entry-form" id="recordForm">
-          <div class="section-title">
-            <h2>新增记录</h2>
-            <label class="camera-button" for="cameraInput">拍照识别</label>
-            <input id="cameraInput" type="file" accept="image/*" capture="environment" style="display:none">
-            <span id="message" role="status"></span>
-          </div>
-          <label>
-            日期
-            <input name="date" type="date" required>
-          </label>
-          <label>
-            时间
-            <input name="time" type="time">
-          </label>
-          <label>
-            时间段
-            <select name="segment">
-              <option>早上</option>
-              <option>中午</option>
-              <option>下午</option>
-              <option>晚上</option>
-            </select>
-          </label>
-          <label>
-            动态血糖
-            <input name="dynamicGlucose" type="number" step="0.1" min="0">
-          </label>
-          <label>
-            扎手指血糖
-            <input name="fingerGlucose" type="number" step="0.1" min="0">
-          </label>
-          <label>
-            收缩压
-            <input name="systolic" type="number" min="40" max="260">
-          </label>
-          <label>
-            舒张压
-            <input name="diastolic" type="number" min="30" max="160">
-          </label>
-          <label>
-            心率
-            <input name="pulse" type="number" min="30" max="220">
-          </label>
-          <label class="wide">
-            备注
-            <input name="note" type="text" maxlength="80">
-          </label>
-          <button class="submit-button" type="submit">保存记录</button>
-        </form>
-
-        <div class="chart-panel">
-          <div class="section-title">
-            <h2>趋势</h2>
-            <span id="rangeLabel"></span>
-          </div>
-          <div class="chart-grid">
-            <div>
-              <p class="chart-name">血糖均值</p>
-              <div id="glucoseChart" class="sparkline"></div>
+    <!-- Settings Overlay -->
+    <div id="settingsOverlay" class="overlay" style="display: none;">
+        <div class="modal" style="max-width: 500px;">
+            <div class="flex-between mb-4">
+                <h2 style="font-size: 20px;">系统设置</h2>
+                <button id="closeSettings" class="btn btn-secondary btn-icon">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
             </div>
-            <div>
-              <p class="chart-name">收缩压均值</p>
-              <div id="pressureChart" class="sparkline"></div>
+            
+            <div class="settings-list">
+                <div class="form-group">
+                    <label>数据存储路径</label>
+                    <input type="text" id="settingsDataPath" placeholder="data/records.json">
+                </div>
+                <div class="form-group">
+                    <label>Vision API 地址</label>
+                    <input type="text" id="settingsVisionURL" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="input-row">
+                    <div class="form-group">
+                        <label>Vision API Key</label>
+                        <input type="password" id="settingsVisionKey" placeholder="sk-...">
+                    </div>
+                    <div class="form-group">
+                        <label>模型</label>
+                        <input type="text" id="settingsVisionModel" placeholder="gpt-4o">
+                    </div>
+                </div>
+                <hr style="border: none; border-top: 1px solid var(--border-glass); margin: 8px 0;">
+                <div class="input-row">
+                    <div class="form-group">
+                        <label>原密码</label>
+                        <input type="password" id="settingsOldPassword">
+                    </div>
+                    <div class="form-group">
+                        <label>新密码</label>
+                        <input type="password" id="settingsNewPassword">
+                    </div>
+                </div>
+                <button id="saveSettings" class="btn btn-primary">保存配置</button>
+                <button id="logoutButton" class="btn btn-secondary" style="color: var(--accent);">退出登录</button>
+                <div id="settingsMessage" class="text-center" style="font-size: 13px;"></div>
             </div>
-          </div>
-          <div class="issue-list" id="issues"></div>
         </div>
-      </section>
+    </div>
 
-      <section class="table-panel">
-        <div class="table-head">
-          <div>日期</div>
-          <div>早上</div>
-          <div>中午</div>
-          <div>下午</div>
-          <div>晚上</div>
-        </div>
-        <div id="dayTable" class="day-table"></div>
-      </section>
-    </main>
-
+    <!-- Templates -->
     <template id="emptyTemplate">
-      <div class="empty-state">
-        <strong>没有匹配记录</strong>
-        <span>换一个月份或时间段看看。</span>
-      </div>
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19,3H5C3.89,3 3,3.9 3,5V19C3,20.1 3.89,21 5,21H19C20.1,21 21,20.1 21,19V5C21,3.9 20.1,3 19,3M19,19H5V5H19V19M11,7H13V9H11V7M11,11H13V13H11V11M11,15H13V17H11V15Z"/></svg>
+            <p>暂无记录，快去添加第一条吧</p>
+        </div>
     </template>
 
-    <script src="/app.js?v=12"></script>
-  </body>
+    <script src="app.js"></script>
+</body>
 </html>

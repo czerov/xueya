@@ -3,7 +3,7 @@ const apiBases = ["/_xueya", "/api"];
 let activeApiBase = apiBases[0];
 let authToken = "";
 const appVersion = "0.1.5";
-const requestTimeoutMs = 4500;
+const requestTimeoutMs = 6000;
 
 function api(url, opts = {}, base = activeApiBase) {
   url = apiURL(url, base);
@@ -60,7 +60,6 @@ async function apiJSON(url, opts = {}) {
 }
 
 function getAuthToken() {
-  // 1. 优先从 URL hash 中获取新 Token (例如登录重定向带回的)
   if (location.hash.startsWith("#token=")) {
     const newToken = decodeURIComponent(location.hash.slice("#token=".length));
     if (newToken) {
@@ -70,15 +69,10 @@ function getAuthToken() {
       return authToken;
     }
   }
-
-  // 2. 其次使用内存缓存
   if (authToken) return authToken;
-
-  // 3. 最后尝试从 localStorage 读取
   try {
     authToken = localStorage.getItem("token") || "";
   } catch { /* localStorage unavailable */ }
-
   return authToken;
 }
 
@@ -162,11 +156,10 @@ function bindAuthEvents() {
 }
 
 async function checkAuth() {
-  if (authBusy) { console.log("checkAuth: busy, skip"); return; }
+  if (authBusy) return;
   authBusy = true;
   try {
     const { data } = await apiJSON("/check");
-    console.log("checkAuth:", data);
     setBuildVersion(data);
     if (data.authed) {
       await showApp();
@@ -175,11 +168,10 @@ async function checkAuth() {
     }
     showLogin(data);
   } catch(e) {
-    console.error("checkAuth error:", e);
     showLogin({
       has_password: true,
       version: appVersion,
-      warning: "登录状态接口暂时无响应，可直接尝试登录。",
+      warning: "无法连接后端，请检查服务状态。",
       error: e?.message || "无法连接后端接口",
     });
   }
@@ -191,24 +183,7 @@ function showLogin(data) {
   setBuildVersion(data);
   const needsSetup = !data?.has_password;
   els.loginTitle.textContent = needsSetup ? "设置访问密码" : "登录";
-  els.loginHint.textContent = data?.warning || (needsSetup ? "首次使用请设置用户名和密码，后续凭此登录" : "请输入用户名和密码");
-  els.loginPassword.autocomplete = needsSetup ? "new-password" : "current-password";
-  els.loginUsername.disabled = false;
-  els.loginPassword.disabled = false;
-  els.loginSubmit.disabled = false;
-  els.loginError.textContent = data?.error || "";
-  els.loginOverlay.style.display = "flex";
-}
-
-function showAuthError(error) {
-  els.mainApp.style.display = "none";
-  setBuildVersion();
-  els.loginTitle.textContent = "后端连接失败";
-  els.loginHint.textContent = "请检查容器是否运行最新版本，或打开 /_xueya/version 查看接口状态。";
-  els.loginUsername.disabled = false;
-  els.loginPassword.disabled = false;
-  els.loginSubmit.disabled = false;
-  els.loginError.textContent = error?.message || "无法连接后端接口";
+  els.loginHint.textContent = data?.warning || (needsSetup ? "首次使用请设置访问凭据" : "请输入凭据以继续");
   els.loginOverlay.style.display = "flex";
 }
 
@@ -220,16 +195,15 @@ function setBuildVersion(data) {
 }
 
 function toLogin() {
-  console.log("toLogin called");
   els.mainApp.style.display = "none";
   els.settingsOverlay.style.display = "none";
   checkAuth();
 }
 
 async function showApp() {
-  console.log("showApp, token in localStorage:", !!localStorage.getItem("token"));
   els.loginOverlay.style.display = "none";
-  els.mainApp.style.display = "";
+  els.mainApp.style.display = "block";
+  setTimeout(() => els.mainApp.classList.add("ready"), 50);
   setDefaultFormDate();
   bindEvents();
   await loadConfig();
@@ -241,6 +215,7 @@ let eventsBound = false;
 function bindEvents() {
   if (eventsBound) return;
   eventsBound = true;
+
   els.monthSelect.addEventListener("change", () => {
     state.month = els.monthSelect.value;
     render();
@@ -251,9 +226,9 @@ function bindEvents() {
     render();
   });
 
-  document.querySelectorAll(".segment-button").forEach((button) => {
+  document.querySelectorAll(".segment-btn").forEach((button) => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".segment-button").forEach((item) => item.classList.remove("active"));
+      document.querySelectorAll(".segment-btn").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
       state.segment = button.dataset.segment;
       render();
@@ -265,22 +240,20 @@ function bindEvents() {
   els.exportXlsx.addEventListener("click", exportXlsx);
   els.importXlsx.addEventListener("change", importXlsx);
   els.cameraInput.addEventListener("change", recognizePhoto);
+  
   els.settingsBtn.addEventListener("click", () => {
     els.settingsOverlay.style.display = "flex";
   });
+  
   els.closeSettings.addEventListener("click", () => {
     els.settingsOverlay.style.display = "none";
   });
+
   els.saveSettings.addEventListener("click", saveSettings);
   els.logoutButton.addEventListener("click", logout);
+  
   els.settingsOverlay.addEventListener("click", (e) => {
     if (e.target === els.settingsOverlay) els.settingsOverlay.style.display = "none";
-  });
-
-  els.dayTable.addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-delete]");
-    if (!button) return;
-    await deleteRecord(button.dataset.delete);
   });
 }
 
@@ -299,14 +272,11 @@ async function login(e) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    console.log("login:", data);
     if (!resp.ok) {
       els.loginError.textContent = data.error || "登录失败";
       return;
     }
-    if (data.token) {
-      rememberToken(data.token);
-    }
+    if (data.token) rememberToken(data.token);
     els.loginError.textContent = "";
     els.loginPassword.value = "";
     await showApp();
@@ -339,16 +309,17 @@ async function loadConfig() {
 }
 
 async function saveSettings() {
-  const dataPath = els.settingsDataPath.value.trim();
-  const visionURL = els.settingsVisionURL.value.trim();
-  const visionKey = els.settingsVisionKey.value.trim();
-  const visionModel = els.settingsVisionModel.value.trim();
-  const newPassword = els.settingsNewPassword.value;
-  const oldPassword = els.settingsOldPassword.value;
+  const payload = {
+    data_path: els.settingsDataPath.value.trim(),
+    vision_url: els.settingsVisionURL.value.trim(),
+    vision_key: els.settingsVisionKey.value.trim(),
+    vision_model: els.settingsVisionModel.value.trim(),
+    new_password: els.settingsNewPassword.value || null,
+    old_password: els.settingsOldPassword.value || null,
+  };
 
-  if (!dataPath) {
-    els.settingsMessage.textContent = "数据路径不能为空";
-    els.settingsMessage.style.color = "var(--coral)";
+  if (!payload.data_path) {
+    showSettingsMessage("路径不能为空", true);
     return;
   }
 
@@ -356,40 +327,33 @@ async function saveSettings() {
     const resp = await api("/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        data_path: dataPath,
-        vision_url: visionURL,
-        vision_key: visionKey,
-        vision_model: visionModel,
-        new_password: newPassword || null,
-        old_password: oldPassword || null,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await readJSON(resp);
     if (!resp.ok) {
-      els.settingsMessage.textContent = data.error || "保存失败";
-      els.settingsMessage.style.color = "var(--coral)";
+      showSettingsMessage(data.error || "保存失败", true);
       return;
     }
-    els.settingsMessage.textContent = newPassword ? "配置和密码已更新" : "配置已保存";
-    els.settingsMessage.style.color = "var(--teal)";
+    showSettingsMessage("配置已保存");
     els.settingsOldPassword.value = "";
     els.settingsNewPassword.value = "";
     await loadRecords();
   } catch {
-    els.settingsMessage.textContent = "网络异常";
-    els.settingsMessage.style.color = "var(--coral)";
+    showSettingsMessage("网络异常", true);
   }
+}
+
+function showSettingsMessage(msg, isError = false) {
+  els.settingsMessage.textContent = msg;
+  els.settingsMessage.style.color = isError ? "var(--accent)" : "var(--primary)";
 }
 
 async function loadRecords() {
   try {
     const response = await api("/records");
-    console.log("loadRecords status:", response.status);
     if (!response.ok) {
       if (response.status === 401) {
         forgetToken();
-        els.loginError.textContent = "登录已失效，请重新登录";
         return toLogin();
       }
       return;
@@ -398,21 +362,14 @@ async function loadRecords() {
     state.records = data.records || [];
     state.issues = data.issues || [];
     buildMonthOptions();
-    setDefaultFormDate();
     render();
   } catch { /* ignore */ }
 }
 
 function buildMonthOptions() {
-  const months = [...new Set(state.records.map((record) => record.date.slice(0, 7)))].sort();
-  if (!state.month && months.length > 0) {
-    state.month = months[months.length - 1];
-  }
-
-  els.monthSelect.innerHTML = [
-    `<option value="">全部月份</option>`,
-    ...months.map((month) => `<option value="${month}">${month}</option>`),
-  ].join("");
+  const months = [...new Set(state.records.map((r) => r.date.slice(0, 7)))].sort();
+  if (!state.month && months.length > 0) state.month = months[months.length - 1];
+  els.monthSelect.innerHTML = [`<option value="">全部月份</option>`, ...months.map((m) => `<option value="${m}">${m}</option>`)].join("");
   els.monthSelect.value = state.month;
 }
 
@@ -421,401 +378,230 @@ function render() {
   renderSummary(records);
   renderCharts(records);
   renderIssues();
-  renderDayTable(records);
+  renderList(records);
 }
 
 function filteredRecords() {
-  return state.records.filter((record) => {
-    if (state.month && !record.date.startsWith(state.month)) return false;
-    if (state.date && record.date !== state.date) return false;
-    if (state.segment !== "all" && record.segment !== state.segment) return false;
+  return state.records.filter((r) => {
+    if (state.month && !r.date.startsWith(state.month)) return false;
+    if (state.date && r.date !== state.date) return false;
+    if (state.segment !== "all" && r.segment !== state.segment) return false;
     return true;
   });
 }
 
 function renderSummary(records) {
-  const days = new Set(records.map((record) => record.date));
-  const bpRecords = records.filter((record) => record.systolic && record.diastolic);
-  const glucoseValues = records.flatMap(valuesFromRecord);
-  const morningValues = records.filter((record) => record.segment === "早上").flatMap(valuesFromRecord);
-  const maxGlucose = glucoseValues.length ? Math.max(...glucoseValues) : null;
-  const avgBP = average(bpRecords.map((record) => record.systolic));
-  const avgMorning = average(morningValues);
+  const days = new Set(records.map((r) => r.date));
+  const bpRecords = records.filter((r) => r.systolic && r.diastolic);
+  const glucoseValues = records.flatMap(v => [v.dynamicGlucose, v.fingerGlucose, v.unknownGlucose].filter(x => x != null));
+  const morningGlucose = records.filter(r => r.segment === "早上").flatMap(v => [v.dynamicGlucose, v.fingerGlucose, v.unknownGlucose].filter(x => x != null));
 
-  const cards = [
-    ["记录天数", days.size || "0", `${records.length} 条记录`],
-    ["平均收缩压", avgBP ? `${avgBP.toFixed(0)} mmHg` : "无", `${bpRecords.length} 次血压`],
-    ["早上血糖均值", avgMorning ? `${avgMorning.toFixed(1)} mmol/L` : "无", `${morningValues.length} 个血糖值`],
-    ["最高血糖", maxGlucose ? `${maxGlucose.toFixed(1)} mmol/L` : "无", "按当前筛选统计"],
+  const avgBP = average(bpRecords.map(r => r.systolic));
+  const avgMorning = average(morningGlucose);
+  const maxGlucose = glucoseValues.length ? Math.max(...glucoseValues) : null;
+
+  const metrics = [
+    { label: "记录天数", value: days.size, detail: `${records.length} 条数据` },
+    { label: "平均收缩压", value: avgBP ? `${avgBP.toFixed(0)}` : "-", detail: "mmHg" },
+    { label: "晨间血糖均值", value: avgMorning ? `${avgMorning.toFixed(1)}` : "-", detail: "mmol/L" },
+    { label: "最高血糖", value: maxGlucose ? `${maxGlucose.toFixed(1)}` : "-", detail: "当前筛选" },
   ];
 
-  els.summary.innerHTML = cards
-    .map(([label, value, detail]) => `
-      <article class="metric-card">
-        <span>${label}</span>
-        <strong>${value}</strong>
-        <small>${detail}</small>
-      </article>
-    `)
-    .join("");
+  els.summary.innerHTML = metrics.map(m => `
+    <article class="glass-card metric-card">
+      <span>${m.label}</span>
+      <strong>${m.value}</strong>
+      <small>${m.detail}</small>
+    </article>
+  `).join("");
 }
 
 function renderCharts(records) {
-  const byDay = groupBy(records, (record) => record.date);
+  const byDay = groupBy(records, r => r.date);
   const days = Object.keys(byDay).sort();
-  const glucosePoints = days.map((date) => ({
-    date,
-    value: average(byDay[date].flatMap(valuesFromRecord)),
-  })).filter((point) => point.value);
-  const pressurePoints = days.map((date) => ({
-    date,
-    value: average(byDay[date].filter((record) => record.systolic).map((record) => record.systolic)),
-  })).filter((point) => point.value);
+  const glucosePoints = days.map(d => ({ date: d, value: average(byDay[d].flatMap(r => [r.dynamicGlucose, r.fingerGlucose, r.unknownGlucose].filter(x => x != null))) })).filter(p => p.value);
+  const pressurePoints = days.map(d => ({ date: d, value: average(byDay[d].filter(r => r.systolic).map(r => r.systolic)) })).filter(p => p.value);
 
   els.rangeLabel.textContent = days.length ? `${days[0]} 至 ${days[days.length - 1]}` : "";
-  els.glucoseChart.innerHTML = sparkline(glucosePoints, "#236b64", "mmol/L");
-  els.pressureChart.innerHTML = sparkline(pressurePoints, "#c95646", "mmHg");
+  els.glucoseChart.innerHTML = sparkline(glucosePoints, "var(--glucose)", "mmol/L");
+  els.pressureChart.innerHTML = sparkline(pressurePoints, "var(--pressure)", "mmHg");
 }
 
 function sparkline(points, color, unit) {
-  if (points.length < 2) {
-    return `<div class="empty-state"><span>数据点不足</span></div>`;
-  }
-  const width = 620;
-  const height = 178;
-  const padding = 24;
-  const values = points.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const spread = Math.max(max - min, 1);
-  const path = points.map((point, index) => {
-    const x = padding + (index * (width - padding * 2)) / Math.max(points.length - 1, 1);
-    const y = height - padding - ((point.value - min) * (height - padding * 2)) / spread;
-    return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+  if (points.length < 2) return `<div class="empty-state">数据不足</div>`;
+  const width = 600, height = 160, pad = 20;
+  const vals = points.map(p => p.value);
+  const min = Math.min(...vals), max = Math.max(...vals), spread = Math.max(max - min, 1);
+  const path = points.map((p, i) => {
+    const x = pad + (i * (width - pad * 2)) / (points.length - 1);
+    const y = height - pad - ((p.value - min) * (height - pad * 2)) / spread;
+    return `${i === 0 ? "M" : "L"}${x} ${y}`;
   }).join(" ");
-  const last = points[points.length - 1];
-
   return `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="趋势图">
-      <path d="M${padding} ${height - padding} H${width - padding}" stroke="#cfdeda" stroke-width="1" />
-      <path d="${path}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="${width - padding}" cy="${height - padding - ((last.value - min) * (height - padding * 2)) / spread}" r="5" fill="${color}" />
-      <text x="${padding}" y="22" fill="#687776" font-size="15">${min.toFixed(1)} - ${max.toFixed(1)} ${unit}</text>
-      <text x="${width - padding - 120}" y="22" fill="${color}" font-size="15">最新 ${last.value.toFixed(1)}</text>
+    <svg viewBox="0 0 ${width} ${height}">
+      <path d="${path}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      <text x="${pad}" y="${height-5}" fill="var(--text-dim)" font-size="10">${min.toFixed(1)}</text>
+      <text x="${pad}" y="15" fill="var(--text-dim)" font-size="10">${max.toFixed(1)}</text>
     </svg>
   `;
 }
 
 function renderIssues() {
-  if (!state.issues.length) {
-    els.issues.innerHTML = "";
-    return;
-  }
-  els.issues.innerHTML = state.issues
-    .map((issue) => `<span class="issue-pill">${escapeHtml(issue.original)} → ${escapeHtml(issue.fixed)}：${escapeHtml(issue.message)}</span>`)
-    .join("");
+  els.issues.innerHTML = state.issues.map(i => `<span class="issue-pill">${escapeHtml(i.original)} → ${escapeHtml(i.fixed)}</span>`).join("");
 }
 
-function renderDayTable(records) {
+function renderList(records) {
   if (!records.length) {
     els.dayTable.innerHTML = document.querySelector("#emptyTemplate").innerHTML;
     return;
   }
-  const byDay = groupBy(records, (record) => record.date);
+  const byDay = groupBy(records, r => r.date);
   const days = Object.keys(byDay).sort().reverse();
-  els.dayTable.innerHTML = days.map((date) => dayRow(date, byDay[date])).join("");
-}
-
-function dayRow(date, records) {
-  const bySegment = groupBy(records, (record) => record.segment || "未分段");
-  const readingsCount = records.length;
-  return `
-    <article class="day-row">
-      <div class="date-cell">
-        <strong>${date}</strong>
-        <span>${weekday(date)} · ${readingsCount} 条</span>
+  els.dayTable.innerHTML = days.map(d => `
+    <div class="day-group">
+      <div class="day-header">
+        <strong>${d}</strong>
+        <span>${weekday(d)} · ${byDay[d].length} 条</span>
       </div>
-      ${segmentOrder.map((segment) => `
-        <div class="segment-cell" data-label="${segment}">
-          ${(bySegment[segment] || []).map(readingMarkup).join("") || `<span class="empty-slot">无记录</span>`}
+      ${byDay[d].map(r => `
+        <div class="record-item">
+          <div class="record-time">${r.time || r.segment}</div>
+          <div class="record-data">
+            ${r.dynamicGlucose ? `<span class="tag glucose">动态 ${r.dynamicGlucose.toFixed(1)}</span>` : ""}
+            ${r.fingerGlucose ? `<span class="tag glucose">扎手 ${r.fingerGlucose.toFixed(1)}</span>` : ""}
+            ${r.systolic ? `<span class="tag pressure">血压 ${r.systolic}/${r.diastolic}</span>` : ""}
+          </div>
+          <button class="btn btn-secondary btn-icon" onclick="deleteRecord('${r.id}')" style="padding: 6px; border-radius: 8px; color: var(--accent);">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
         </div>
       `).join("")}
-    </article>
-  `;
-}
-
-function readingMarkup(record) {
-  const tags = [];
-  if (record.dynamicGlucose != null) tags.push(glucoseTag("动态", record.dynamicGlucose));
-  if (record.fingerGlucose != null) tags.push(glucoseTag("扎手", record.fingerGlucose));
-  if (record.unknownGlucose != null) tags.push(glucoseTag("血糖", record.unknownGlucose));
-  if (record.systolic && record.diastolic) tags.push(pressureTag(record));
-
-  return `
-    <div class="reading">
-      <div class="reading-time">${record.time || record.label || record.segment}</div>
-      <div class="tag-row">${tags.join("")}</div>
-      ${record.note ? `<div class="note">${escapeHtml(record.note)}</div>` : ""}
-      ${record.source === "manual" ? `<button class="delete-button" type="button" data-delete="${record.id}">删除</button>` : ""}
     </div>
-  `;
+  `).join("");
 }
 
-function glucoseTag(label, value) {
-  const tone = value >= 10 ? "warn" : value <= 3.9 ? "low" : "";
-  return `<span class="tag ${tone}">${label} ${Number(value).toFixed(1)}</span>`;
-}
-
-function pressureTag(record) {
-  const high = record.systolic >= 140 || record.diastolic >= 90;
-  const low = record.systolic < 90 || record.diastolic < 60;
-  const tone = high ? "warn" : low ? "low" : "pressure";
-  return `<span class="tag ${tone}">血压 ${record.systolic}/${record.diastolic} · ${record.pulse || "-"}</span>`;
-}
-
-async function submitRecord(event) {
-  event.preventDefault();
-  const form = new FormData(els.form);
-  const record = {
-    date: form.get("date"),
-    time: form.get("time"),
-    segment: form.get("segment"),
-    note: form.get("note"),
-  };
-
-  addNumber(record, "dynamicGlucose", form.get("dynamicGlucose"));
-  addNumber(record, "fingerGlucose", form.get("fingerGlucose"));
-  addNumber(record, "systolic", form.get("systolic"));
-  addNumber(record, "diastolic", form.get("diastolic"));
-  addNumber(record, "pulse", form.get("pulse"));
+async function submitRecord(e) {
+  e.preventDefault();
+  const fd = new FormData(els.form);
+  const record = { date: fd.get("date"), time: fd.get("time"), segment: fd.get("segment"), note: fd.get("note") };
+  ["dynamicGlucose", "fingerGlucose", "systolic", "diastolic", "pulse"].forEach(k => { if(fd.get(k)) record[k] = Number(fd.get(k)); });
 
   try {
-    const response = await api("/records", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(record),
-    });
-
-    if (!response.ok) {
-      const error = await readJSON(response).catch(() => ({ error: "保存失败" }));
-      showMessage(error.error || "保存失败", true);
+    const res = await api("/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(record) });
+    if (!res.ok) {
+      showMessage((await readJSON(res)).error || "保存失败", true);
       return;
     }
-
     els.form.reset();
     setDefaultFormDate();
-    state.month = record.date.slice(0, 7);
-    showMessage("已保存");
+    showMessage("记录已添加");
     await loadRecords();
-  } catch {
-    showMessage("网络异常", true);
-  }
+  } catch { showMessage("网络异常", true); }
 }
 
 async function deleteRecord(id) {
+  if (!confirm("确定删除此条记录吗？")) return;
   try {
-    const response = await api(`/records/${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (!response.ok) {
-      showMessage("删除失败", true);
-      return;
+    const res = await api(`/records/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (res.ok) {
+      showMessage("已删除");
+      await loadRecords();
     }
-    showMessage("已删除");
-    await loadRecords();
-  } catch {
-    showMessage("网络异常", true);
-  }
+  } catch { showMessage("网络异常", true); }
+}
+
+function showMessage(msg, isError = false) {
+  els.message.textContent = msg;
+  els.message.style.background = isError ? "rgba(244, 63, 94, 0.1)" : "rgba(16, 185, 129, 0.1)";
+  els.message.style.color = isError ? "var(--accent)" : "var(--primary)";
+  setTimeout(() => els.message.textContent = "", 3000);
 }
 
 function exportCsv() {
   const records = filteredRecords();
-  const header = ["日期", "时间", "时间段", "动态血糖", "扎手指血糖", "未标注血糖", "收缩压", "舒张压", "心率", "备注"];
-  const rows = records.map((record) => [
-    record.date,
-    record.time || "",
-    record.segment || "",
-    record.dynamicGlucose ?? "",
-    record.fingerGlucose ?? "",
-    record.unknownGlucose ?? "",
-    record.systolic ?? "",
-    record.diastolic ?? "",
-    record.pulse ?? "",
-    record.note || "",
-  ]);
-  const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
-  const blob = new Blob([`\ufeff${csv}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `xueya-${state.month || "all"}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const header = ["日期", "时间", "动态血糖", "扎手指", "收缩压", "舒张压", "备注"];
+  const rows = records.map(r => [r.date, r.time || "", r.dynamicGlucose || "", r.fingerGlucose || "", r.systolic || "", r.diastolic || "", r.note || ""]);
+  const csv = [header, ...rows].map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `xueya-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
 }
 
 function exportXlsx() {
-  const params = filterParams();
-  const token = getAuthToken();
-  if (token) params.set("access_token", token);
-  window.location.href = `${apiURL("/records.xlsx", activeApiBase, false)}?${params.toString()}`;
-}
-
-async function importXlsx(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
-  const form = new FormData();
-  form.append("file", file);
-  try {
-    const response = await api("/records.xlsx", {
-      method: "POST",
-      body: form,
-    });
-    event.target.value = "";
-
-    const result = await readJSON(response).catch(() => ({}));
-    if (!response.ok) {
-      showMessage(result.error || "导入失败", true);
-      return;
-    }
-
-    showMessage(`已导入 ${result.imported || 0} 条，跳过 ${result.skipped || 0} 条`);
-    await loadRecords();
-  } catch {
-    showMessage("网络异常", true);
-  }
-}
-
-async function recognizePhoto(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
-  const label = els.cameraLabel;
-  const originalText = label.textContent;
-  label.textContent = "识别中...";
-  label.style.pointerEvents = "none";
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  try {
-    const response = await api("/recognize", {
-      method: "POST",
-      body: formData,
-    });
-    event.target.value = "";
-
-    const payload = await readJSON(response);
-    if (!response.ok) {
-      showMessage(payload.error || "识别失败", true);
-      return;
-    }
-
-    const records = payload.records || [];
-    if (!records.length) {
-      showMessage("未识别到任何数值", true);
-      return;
-    }
-
-    let saved = 0;
-    for (const item of records) {
-      const record = buildRecord(item);
-      const res = await api("/records", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(record),
-      });
-      if (res.ok) saved++;
-    }
-
-    els.form.reset();
-    setDefaultFormDate();
-    showMessage(`识别 ${records.length} 条，已自动保存 ${saved} 条`);
-    await loadRecords();
-  } catch {
-    showMessage("网络异常，识别失败", true);
-  } finally {
-    label.textContent = originalText;
-    label.style.pointerEvents = "";
-  }
-}
-
-function buildRecord(data) {
-  const today = new Date().toISOString().slice(0, 10);
-  return {
-    date: data.date || els.form.elements.date.value || today,
-    time: data.time || els.form.elements.time.value || null,
-    segment: els.form.elements.segment.value,
-    dynamicGlucose: data.dynamicGlucose ?? null,
-    fingerGlucose: data.fingerGlucose ?? null,
-    systolic: data.systolic ?? null,
-    diastolic: data.diastolic ?? null,
-    pulse: data.pulse ?? null,
-  };
-}
-
-function filterParams() {
   const params = new URLSearchParams();
   if (state.month) params.set("month", state.month);
-  if (state.date) params.set("date", state.date);
-  if (state.segment && state.segment !== "all") params.set("segment", state.segment);
-  return params;
+  const token = getAuthToken();
+  window.location.href = `${apiURL("/records.xlsx", activeApiBase, false)}?${params.toString()}${token ? `&access_token=${token}` : ""}`;
 }
 
-function addNumber(target, key, value) {
-  if (value !== "") target[key] = Number(value);
+async function importXlsx(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData(); fd.append("file", file);
+  try {
+    const res = await api("/records.xlsx", { method: "POST", body: fd });
+    e.target.value = "";
+    if (res.ok) {
+      const d = await readJSON(res);
+      showMessage(`导入成功: ${d.imported || 0} 条`);
+      await loadRecords();
+    }
+  } catch { showMessage("网络异常", true); }
 }
 
-function valuesFromRecord(record) {
-  return [record.dynamicGlucose, record.fingerGlucose, record.unknownGlucose]
-    .filter((value) => value != null)
-    .map(Number);
-}
-
-function average(values) {
-  const usable = values.filter((value) => Number.isFinite(value));
-  if (!usable.length) return null;
-  return usable.reduce((sum, value) => sum + value, 0) / usable.length;
-}
-
-function groupBy(items, getKey) {
-  return items.reduce((groups, item) => {
-    const key = getKey(item);
-    groups[key] ||= [];
-    groups[key].push(item);
-    return groups;
-  }, {});
-}
-
-function weekday(dateText) {
-  return new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(new Date(`${dateText}T00:00:00`));
+async function recognizePhoto(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const btn = els.cameraLabel;
+  const oldText = btn.innerHTML;
+  btn.innerHTML = "识别中...";
+  btn.style.opacity = "0.5";
+  
+  const fd = new FormData(); fd.append("file", file);
+  try {
+    const res = await api("/recognize", { method: "POST", body: fd });
+    e.target.value = "";
+    const data = await readJSON(res);
+    if (res.ok && data.records?.length) {
+      for (const r of data.records) {
+        await api("/records", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({...r, date: r.date || new Date().toISOString().slice(0,10), segment: r.segment || "早上"}) });
+      }
+      showMessage(`识别并保存了 ${data.records.length} 条记录`);
+      await loadRecords();
+    } else {
+      showMessage(data.error || "未识别到数据", true);
+    }
+  } catch { showMessage("识别失败", true); }
+  finally { btn.innerHTML = oldText; btn.style.opacity = "1"; }
 }
 
 function setDefaultFormDate() {
-  const latest = state.records.map((record) => record.date).sort().at(-1);
-  els.form.elements.date.value = latest || new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const time = now.toTimeString().slice(0, 5);
+  if (els.form.elements.date) els.form.elements.date.value = date;
+  if (els.form.elements.time) els.form.elements.time.value = time;
 }
 
-function showMessage(message, isError = false) {
-  els.message.textContent = message;
-  els.message.style.color = isError ? "var(--coral)" : "var(--teal)";
-  clearTimeout(showMessage.timer);
-  showMessage.timer = setTimeout(() => {
-    els.message.textContent = "";
-  }, 2600);
+function weekday(dateText) {
+  return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][new Date(dateText).getDay()];
 }
 
-function csvCell(value) {
-  const text = String(value ?? "");
-  if (/[",\n]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`;
-  }
-  return text;
+function average(arr) {
+  const valid = arr.filter(v => typeof v === "number" && !isNaN(v));
+  return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+function groupBy(arr, fn) {
+  return arr.reduce((acc, x) => {
+    const k = fn(x);
+    (acc[k] = acc[k] || []).push(x);
+    return acc;
+  }, {});
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
