@@ -50,6 +50,7 @@ body {
 
 /* Glassmorphism Components */
 .glass-card {
+  background: rgba(15, 23, 42, 0.8); /* 增加更深的不透明背景作为回退 */
   background: var(--bg-card);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);

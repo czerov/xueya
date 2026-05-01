@@ -1,0 +1,17 @@
+services:
+  xueya:
+    image: ghcr.io/czerov/xueya:0.1.5
+    container_name: xueya
+    # 如果是在 NAS 环境下为了更好的兼容性或使用特定网络功能，可以使用 host 模式：
+    # network_mode: host
+    # 否则推荐使用标准的端口映射：
+    ports:
+      - "6644:6644"
+    environment:
+      - ADDR=:6644
+      - LOGIN_USER=admin    # 默认登录用户名
+      - LOGIN_PASS=admin123  # 默认登录密码
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    restart: unless-stopped
