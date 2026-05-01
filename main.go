@@ -379,10 +379,13 @@ func (s *apiServerReal) recordByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodDelete:
+		log.Printf("[Records] 收到删除请求: ID=%s", id)
 		if err := store.Delete(id); err != nil {
+			log.Printf("[Records] 删除失败: %v", err)
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
+		log.Printf("[Records] 删除成功: ID=%s", id)
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodPut:
 		var record health.Record

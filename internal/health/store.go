@@ -59,7 +59,8 @@ func (s *Store) Add(record Record) (Record, error) {
 	defer s.mu.Unlock()
 
 	if record.ID == "" {
-		record.ID = fmt.Sprintf("manual-%d", time.Now().UnixNano())
+		// 使用纳秒级时间戳 + 随机数确保唯一性，防止批量录入时 ID 冲突
+		record.ID = fmt.Sprintf("manual-%d-%x", time.Now().UnixNano(), rand.Uint32())
 	}
 	record.Source = "manual"
 	if err := normalizeManualRecord(&record); err != nil {

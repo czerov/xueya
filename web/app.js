@@ -472,6 +472,13 @@
             }
             Promise.all(promises).then(function() {
               showMessage("成功识别并生成 " + savedCount + " 条记录");
+              // 自动切换到新记录中最晚的月份，方便用户看到数据
+              var latestMonth = "";
+              for (var j = 0; j < records.length; j++) {
+                var m = records[j].date.slice(0, 7);
+                if (m > latestMonth) latestMonth = m;
+              }
+              if (latestMonth) state.month = latestMonth;
               loadRecords();
             });
           } else {
