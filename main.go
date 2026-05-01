@@ -316,13 +316,17 @@ func (s *apiServerReal) records(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, store.All())
+		writeJSON(w, http.StatusOK, map[string]any{
+			"records": store.All(),
+			"issues":  store.Issues(),
+		})
 	case http.MethodPost:
 		var record health.Record
 		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
 			writeError(w, http.StatusBadRequest, "无效请求")
 			return
 		}
+		log.Printf("[Records] 收到保存请求: Date=%s, Time=%s, Glucose=%v/%v", record.Date, record.Time, record.DynamicGlucose, record.FingerGlucose)
 		saved, err := store.Add(record)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
