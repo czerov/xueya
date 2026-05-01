@@ -340,7 +340,18 @@ func (s *apiServerReal) exportXLSX(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	month := r.URL.Query().Get("month")
-	data, err := health.ExportXLSX(store.All())
+	records := store.All()
+	if month != "" {
+		var filtered []health.Record
+		for _, rec := range records {
+			if strings.HasPrefix(rec.Date, month) {
+				filtered = append(filtered, rec)
+			}
+		}
+		records = filtered
+	}
+
+	data, err := health.ExportXLSX(records)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "生成 Excel 失败")
 		return
