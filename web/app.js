@@ -425,6 +425,27 @@
       var url = apiURL("/records.xlsx", activeApiBase, false) + "?month=" + state.month + (token ? "&access_token=" + token : "");
       window.location.href = url;
     };
+    els.saveSettings.onclick = function() {
+      var cfg = {
+        vision_url: els.settingsVisionURL.value,
+        vision_key: els.settingsVisionKey.value,
+        vision_model: els.settingsVisionModel.value,
+        new_password: els.settingsNewPassword.value
+      };
+      apiJSON("/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cfg)
+      }).then(function(res) {
+        if (res.response.ok) {
+          els.settingsMessage.textContent = "设置已保存";
+          els.settingsNewPassword.value = "";
+          setTimeout(function() { els.settingsMessage.textContent = ""; }, 3000);
+        } else {
+          els.settingsMessage.textContent = "保存失败";
+        }
+      });
+    };
   }
 
   function exportCsv() {
@@ -476,6 +497,8 @@
       if (res.ok) return readJSON(res).then(function(c) {
         els.settingsDataPath.value = c.data_path || "";
         els.settingsVisionURL.value = c.vision_url || "";
+        els.settingsVisionKey.value = c.vision_key || "";
+        els.settingsVisionModel.value = c.vision_model || "";
       });
     });
   }
