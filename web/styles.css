@@ -232,7 +232,23 @@ header {
   margin-left: 2px;
 }
 
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.input-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
 input, select, textarea {
+  width: 100%;
+  box-sizing: border-box;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-glass);
   border-radius: 8px;
@@ -252,12 +268,6 @@ input:focus, select:focus {
   border-color: var(--primary);
 }
 
-.input-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -265,7 +275,7 @@ input:focus, select:focus {
   justify-content: center;
   gap: 8px;
   padding: 0 16px;
-  height: 40px; /* 强制锁定高度 */
+  height: 40px;
   border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
