@@ -25,7 +25,7 @@ import (
 var webFiles embed.FS
 
 var (
-	appVersion = "0.1.3"
+	appVersion = "0.1.4"
 	gitCommit  = "dev"
 )
 
@@ -246,7 +246,7 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400 * 7,
 	})
 	if formLogin {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, "/#token="+token, http.StatusSeeOther)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{

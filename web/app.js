@@ -1,18 +1,17 @@
 const segmentOrder = ["早上", "中午", "下午", "晚上"];
 const apiBases = ["/_xueya", "/api"];
 let activeApiBase = apiBases[0];
-const appVersion = "0.1.3";
+let authToken = "";
+const appVersion = "0.1.4";
 const requestTimeoutMs = 4500;
 
 function api(url, opts = {}, base = activeApiBase) {
   url = apiURL(url, base);
   opts.credentials = "same-origin";
-  try {
-    const token = localStorage.getItem("token");
-    if (token) {
-      opts.headers = { ...opts.headers, Authorization: "Bearer " + token };
-    }
-  } catch { /* localStorage unavailable */ }
+  const token = getAuthToken();
+  if (token) {
+    opts.headers = { ...opts.headers, Authorization: "Bearer " + token };
+  }
   return fetchWithTimeout(url, opts);
 }
 
@@ -54,6 +53,30 @@ async function apiJSON(url, opts = {}) {
     }
   }
   throw lastError || new Error("无法连接后端接口");
+}
+
+function getAuthToken() {
+  if (authToken) return authToken;
+  try {
+    authToken = localStorage.getItem("token") || "";
+  } catch { /* localStorage unavailable */ }
+  if (!authToken && location.hash.startsWith("#token=")) {
+    authToken = decodeURIComponent(location.hash.slice("#token=".length));
+    rememberToken(authToken);
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  return authToken;
+}
+
+function rememberToken(token) {
+  authToken = token || "";
+  if (!authToken) return;
+  try { localStorage.setItem("token", authToken); } catch { /* localStorage unavailable */ }
+}
+
+function forgetToken() {
+  authToken = "";
+  try { localStorage.removeItem("token"); } catch { /* localStorage unavailable */ }
 }
 
 const state = {
@@ -108,6 +131,7 @@ init();
 
 async function init() {
   bindAuthEvents();
+  getAuthToken();
   await checkAuth();
 }
 
@@ -264,7 +288,7 @@ async function login(e) {
       return;
     }
     if (data.token) {
-      try { localStorage.setItem("token", data.token); } catch {}
+      rememberToken(data.token);
     }
     els.loginError.textContent = "";
     els.loginPassword.value = "";
@@ -278,7 +302,7 @@ async function login(e) {
 }
 
 async function logout() {
-  localStorage.removeItem("token");
+  forgetToken();
   await api("/logout", { method: "POST" });
   els.settingsOverlay.style.display = "none";
   const { data } = await apiJSON("/check").catch(() => ({ data: {} }));
@@ -346,7 +370,11 @@ async function loadRecords() {
     const response = await api("/records");
     console.log("loadRecords status:", response.status);
     if (!response.ok) {
-      if (response.status === 401) { localStorage.removeItem("token"); return toLogin(); }
+      if (response.status === 401) {
+        forgetToken();
+        els.loginError.textContent = "登录已失效，请重新登录";
+        return toLogin();
+      }
       return;
     }
     const data = await readJSON(response);
