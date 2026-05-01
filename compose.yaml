@@ -11,6 +11,7 @@ services:
       - ADDR=:6644
       - LOGIN_USER=admin    # 默认登录用户名
       - LOGIN_PASS=admin123  # 默认登录密码
+      - TZ=Asia/Shanghai     # 设置时区以修正日志时间
     volumes:
       - ./data:/app/data
       - ./config:/app/config
