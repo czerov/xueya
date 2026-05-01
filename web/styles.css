@@ -159,6 +159,92 @@ header {
   .charts-grid { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 640px) {
+  .app-container { padding: 16px; }
+
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .btn-group {
+    flex: 1;
+  }
+  .btn-group .btn-sm { padding: 6px 10px; font-size: 12px; gap: 4px; }
+  .btn-group .btn-sm svg { width: 14px; height: 14px; }
+
+  .brand h1 { font-size: 20px; }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .metric-card { padding: 16px; min-height: 100px; }
+  .metric-card strong { font-size: 24px; }
+
+  .record-form-section .glass-card { padding: 20px; }
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .input-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .history-filters {
+    flex-direction: column;
+    width: 100%;
+  }
+  .history-filters select,
+  .history-filters input {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .record-item {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px;
+  }
+  .record-item:hover { transform: none; }
+
+  .day-header {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .segment-tabs { flex-wrap: wrap; }
+  .segment-btn { font-size: 13px; padding: 8px 6px; }
+
+  .overlay { padding: 16px; }
+  .modal { padding: 28px 20px; max-width: 100%; border-radius: var(--radius-md); }
+
+  .login-header h2 { font-size: 20px; }
+  .login-header p { font-size: 13px; }
+
+  #loginForm input {
+    font-size: 16px;
+    padding: 14px;
+  }
+
+  .section-title h2 { font-size: 18px; }
+  .dashboard { gap: 24px; }
+
+  input, select, textarea { font-size: 16px; }
+}
+
 .chart-card { min-height: 320px; }
 .chart-header h3 { font-size: 18px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .chart-header small { font-size: 13px; color: var(--text-dim); font-weight: normal; }
