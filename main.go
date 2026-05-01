@@ -27,16 +27,26 @@ var webFiles embed.FS
 
 var (
 	appVersion = "0.1.5"
-	gitCommit  = "dev"
+	gitCommit  = "unknown"
 )
 
 type apiServer struct {
-	mu        sync.RWMutex
-	store     *health.Store
-	cfg       health.Config
-	cfgPath   string
-	sessions  map[string]time.Time
-	sessionMu sync.Mutex
+	store    *health.Store
+	cfg      health.Config
+	cfgPath  string
+	mu       sync.RUnlocker
+	sessions map[string]time.Time
+}
+
+func (s *apiServer) RLock()    {}
+func (s *apiServer) RUnlock() {}
+
+type apiServerReal struct {
+	store    *health.Store
+	cfg      health.Config
+	cfgPath  string
+	mu       sync.RWMutex
+	sessions map[string]time.Time
 }
 
 func main() {
@@ -104,13 +114,7 @@ func main() {
 		cfg.Username,
 	)
 
-	webRoot, err := fs.Sub(webFiles, "web")
-	if err != nil {
-		log.Fatalf("load web files: %v", err)
-	}
-	fileServer := http.FileServer(http.FS(webRoot))
-
-	api := &apiServer{
+	api := &apiServerReal{
 		store:    store,
 		cfg:      cfg,
 		cfgPath:  cfgPath,
@@ -118,83 +122,91 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	registerAPIRoutes(mux, "/api", api)
-	registerAPIRoutes(mux, "/_xueya", api)
-	mux.Handle("/", noStore(fileServer))
 
-	addr := env("ADDR", ":6644")
-	log.Printf("blood glucose and pressure app listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("server: %v", err)
+	sub, _ := fs.Sub(webFiles, "web")
+	fsrv := http.FileServer(http.FS(sub))
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			fsrv.ServeHTTP(w, r)
+			return
+		}
+		f, err := sub.Open(strings.TrimPrefix(r.URL.Path, "/"))
+		if err == nil {
+			f.Close()
+			fsrv.ServeHTTP(w, r)
+			return
+		}
+		fsrv.ServeHTTP(w, r)
+	})
+
+	mux.HandleFunc("/api/login", api.login)
+	mux.HandleFunc("/api/logout", api.logout)
+	mux.HandleFunc("/api/config", api.requireAuth(api.config))
+	mux.HandleFunc("/api/records", api.requireAuth(api.records))
+	mux.HandleFunc("/api/records/", api.requireAuth(api.recordByID))
+	mux.HandleFunc("/api/recognize", api.requireAuth(api.recognize))
+	mux.HandleFunc("/api/records.xlsx", api.requireAuth(api.exportXLSX))
+
+	mux.HandleFunc("/_xueya/login", api.login)
+	mux.HandleFunc("/_xueya/logout", api.logout)
+	mux.HandleFunc("/_xueya/config", api.requireAuth(api.config))
+	mux.HandleFunc("/_xueya/records", api.requireAuth(api.records))
+	mux.HandleFunc("/_xueya/records/", api.requireAuth(api.recordByID))
+	mux.HandleFunc("/_xueya/recognize", api.requireAuth(api.recognize))
+	mux.HandleFunc("/_xueya/records.xlsx", api.requireAuth(api.exportXLSX))
+
+	addr := os.Getenv("ADDR")
+	if addr == "" {
+		addr = ":6644"
+	}
+
+	log.Printf("server listening on %s", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func env(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func (s *apiServerReal) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.requestToken(r) == "" {
+			writeError(w, http.StatusUnauthorized, "未登录")
+			return
+		}
+		next(w, r)
 	}
-	return fallback
 }
 
-func noStore(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func registerAPIRoutes(mux *http.ServeMux, prefix string, api *apiServer) {
-	prefix = strings.TrimRight(prefix, "/")
-	mux.HandleFunc(prefix+"/login", api.login)
-	mux.HandleFunc(prefix+"/logout", api.logout)
-	mux.HandleFunc(prefix+"/check", api.check)
-	mux.HandleFunc(prefix+"/version", api.version)
-	mux.HandleFunc(prefix+"/config", api.auth(api.config))
-	mux.HandleFunc(prefix+"/records", api.auth(api.records))
-	mux.HandleFunc(prefix+"/records.xlsx", api.auth(api.recordsXLSX))
-	mux.HandleFunc(prefix+"/records/", api.auth(api.recordByID))
-	mux.HandleFunc(prefix+"/recognize", api.auth(api.recognize))
-	mux.HandleFunc(prefix+"/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusOK)
-	})
-}
-
-func (s *apiServer) check(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	hasPassword := s.cfg.Password != ""
-	username := s.cfg.Username
-	s.mu.RUnlock()
-	authed := s.validSession(r)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"has_password":         hasPassword,
-		"username":             username,
-		"authed":               authed,
-		"version":              appVersion,
-		"commit":               gitCommit,
-		"env_login_configured": os.Getenv("LOGIN_USER") != "" && os.Getenv("LOGIN_PASS") != "",
-	})
-}
-
-func (s *apiServer) version(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
-		return
+func (s *apiServerReal) requestToken(r *http.Request) string {
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token := strings.TrimPrefix(auth, "Bearer ")
+		s.mu.RLock()
+		_, ok := s.sessions[token]
+		s.mu.RUnlock()
+		if ok {
+			return token
+		}
 	}
-	s.mu.RLock()
-	hasPassword := s.cfg.Password != ""
-	username := s.cfg.Username
-	s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"version":              appVersion,
-		"commit":               gitCommit,
-		"has_password":         hasPassword,
-		"username":             username,
-		"env_login_configured": os.Getenv("LOGIN_USER") != "" && os.Getenv("LOGIN_PASS") != "",
-	})
+	if cookie, err := r.Cookie("access_token"); err == nil {
+		s.mu.RLock()
+		_, ok := s.sessions[cookie.Value]
+		s.mu.RUnlock()
+		if ok {
+			return cookie.Value
+		}
+	}
+	if token := r.URL.Query().Get("access_token"); token != "" {
+		s.mu.RLock()
+		_, ok := s.sessions[token]
+		s.mu.RUnlock()
+		if ok {
+			return token
+		}
+	}
+	return ""
 }
 
-func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
+func (s *apiServerReal) login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
 		return
@@ -204,253 +216,111 @@ func (s *apiServer) login(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	formLogin := strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") ||
-		strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data")
-	if formLogin {
-		if err := r.ParseForm(); err != nil {
-			writeError(w, http.StatusBadRequest, "请求表单无效")
-			return
-		}
-		req.Username = r.FormValue("username")
-		req.Password = r.FormValue("password")
-	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
-			return
-		}
-	}
-	if req.Username == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "用户名和密码不能为空")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "无效请求")
 		return
 	}
 
 	s.mu.RLock()
-	hasPassword := s.cfg.Password != ""
 	cfg := s.cfg
 	s.mu.RUnlock()
 
-	if !hasPassword {
-		cfg.Username = req.Username
-		if err := cfg.SetPassword(req.Password); err != nil {
-			writeError(w, http.StatusInternalServerError, "设置密码失败")
-			return
-		}
-		s.mu.Lock()
-		s.cfg = cfg
-		s.mu.Unlock()
-		if err := cfg.Save(s.cfgPath); err != nil {
-			log.Printf("save config after setup: %v", err)
-			writeError(w, http.StatusInternalServerError, "保存配置失败，请检查磁盘权限")
-			return
-		}
-		log.Printf("user %s setup completed, config saved to %s", req.Username, s.cfgPath)
-	} else if cfg.Username != req.Username || !cfg.CheckPassword(req.Password) {
+	if cfg.Username != req.Username || !cfg.CheckPassword(req.Password) {
 		writeError(w, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
 
-	token := s.newSession()
+	token := generateToken()
 	s.mu.Lock()
-	if err := s.cfg.SetSessionToken(token); err != nil {
-		s.mu.Unlock()
-		writeError(w, http.StatusInternalServerError, "创建登录会话失败")
-		return
-	}
-	cfgPath := s.cfgPath
-	cfg = s.cfg
+	s.sessions[token] = time.Now()
 	s.mu.Unlock()
-	if err := cfg.Save(cfgPath); err != nil {
-		log.Printf("save session token: %v", err)
-		writeError(w, http.StatusInternalServerError, "保存登录会话失败")
-		return
-	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     "access_token",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400 * 7,
+		MaxAge:   86400 * 30,
 	})
-	if formLogin {
-		http.Redirect(w, r, "/#token="+token, http.StatusSeeOther)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"ok":    "true",
-		"token": token,
-	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"access_token": token})
 }
 
-func (s *apiServer) logout(w http.ResponseWriter, r *http.Request) {
-	if token := requestToken(r); token != "" {
-		s.sessionMu.Lock()
+func (s *apiServerReal) logout(w http.ResponseWriter, r *http.Request) {
+	token := s.requestToken(r)
+	if token != "" {
+		s.mu.Lock()
 		delete(s.sessions, token)
-		s.sessionMu.Unlock()
-	}
-	s.mu.Lock()
-	s.cfg.ClearSessionToken()
-	cfg := s.cfg
-	cfgPath := s.cfgPath
-	s.mu.Unlock()
-	if err := cfg.Save(cfgPath); err != nil {
-		log.Printf("clear session token: %v", err)
+		s.mu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:   "session",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     "access_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *apiServer) auth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.validSession(r) {
-			writeError(w, http.StatusUnauthorized, "未登录")
-			return
-		}
-		next(w, r)
-	}
-}
-
-func (s *apiServer) validSession(r *http.Request) bool {
-	if token := requestToken(r); token != "" {
-		s.sessionMu.Lock()
-		expiry, ok := s.sessions[token]
-		if ok && time.Now().Before(expiry) {
-			s.sessionMu.Unlock()
-			return true
-		}
-		delete(s.sessions, token)
-		s.sessionMu.Unlock()
-		s.mu.RLock()
-		ok = s.cfg.CheckSessionToken(token)
-		s.mu.RUnlock()
-		if ok {
-			return true
-		}
-	}
-
-	return false
-}
-
-func requestToken(r *http.Request) string {
-	if token := bearerToken(r); token != "" {
-		return token
-	}
-	if token := strings.TrimSpace(r.URL.Query().Get("access_token")); token != "" {
-		return token
-	}
-	if cookie, err := r.Cookie("session"); err == nil {
-		return cookie.Value
-	}
-	return ""
-}
-
-func bearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		return ""
-	}
-	return strings.TrimSpace(auth[7:])
-}
-
-func (s *apiServer) newSession() string {
-	b := make([]byte, 32)
+func generateToken() string {
+	b := make([]byte, 16)
 	rand.Read(b)
-	token := hex.EncodeToString(b)
-	s.sessionMu.Lock()
-	s.sessions[token] = time.Now().Add(7 * 24 * time.Hour)
-	s.sessionMu.Unlock()
-	return token
+	return hex.EncodeToString(b)
 }
 
-func (s *apiServer) config(w http.ResponseWriter, r *http.Request) {
+func (s *apiServerReal) config(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	cfg := s.cfg
+	cfgPath := s.cfgPath
+	s.mu.RUnlock()
+
 	switch r.Method {
 	case http.MethodGet:
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data_path":    s.cfg.DataPath,
-			"vision_url":   s.cfg.VisionURL,
-			"vision_key":   s.cfg.VisionKey,
-			"vision_model": s.cfg.VisionModel,
-		})
+		writeJSON(w, http.StatusOK, cfg)
 	case http.MethodPost:
-		var req struct {
-			DataPath    string `json:"data_path"`
-			NewPassword string `json:"new_password"`
-			OldPassword string `json:"old_password"`
+		var newCfg struct {
 			VisionURL   string `json:"vision_url"`
 			VisionKey   string `json:"vision_key"`
 			VisionModel string `json:"vision_model"`
+			NewPassword string `json:"new_password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+		if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+			writeError(w, http.StatusBadRequest, "无效请求")
 			return
 		}
 
 		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		if req.NewPassword != "" {
-			if s.cfg.Password != "" && !s.cfg.CheckPassword(req.OldPassword) {
-				writeError(w, http.StatusBadRequest, "原密码错误")
-				return
-			}
-			if err := s.cfg.SetPassword(req.NewPassword); err != nil {
-				writeError(w, http.StatusInternalServerError, "设置密码失败")
-				return
-			}
+		s.cfg.VisionURL = newCfg.VisionURL
+		s.cfg.VisionKey = newCfg.VisionKey
+		s.cfg.VisionModel = newCfg.VisionModel
+		if newCfg.NewPassword != "" {
+			s.cfg.SetPassword(newCfg.NewPassword)
 		}
-
-		if req.DataPath != "" && req.DataPath != s.cfg.DataPath {
-			newStore, err := health.NewStore(req.DataPath, nil, nil)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "无法打开新数据文件: "+err.Error())
-				return
-			}
-			s.store = newStore
-			s.cfg.DataPath = req.DataPath
-		}
-
-		s.cfg.VisionURL = strings.TrimSpace(req.VisionURL)
-		s.cfg.VisionKey = strings.TrimSpace(req.VisionKey)
-		s.cfg.VisionModel = strings.TrimSpace(req.VisionModel)
-
-		if err := s.cfg.Save(s.cfgPath); err != nil {
-			writeError(w, http.StatusInternalServerError, "保存配置失败: "+err.Error())
+		if err := s.cfg.Save(cfgPath); err != nil {
+			s.mu.Unlock()
+			writeError(w, http.StatusInternalServerError, "保存配置失败")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data_path":    s.cfg.DataPath,
-			"vision_url":   s.cfg.VisionURL,
-			"vision_key":   s.cfg.VisionKey,
-			"vision_model": s.cfg.VisionModel,
-		})
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
 	}
 }
 
-func (s *apiServer) records(w http.ResponseWriter, r *http.Request) {
+func (s *apiServerReal) records(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	store := s.store
 	s.mu.RUnlock()
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, health.Dataset{
-			Records: store.All(),
-			Issues:  store.Issues(),
-		})
+		writeJSON(w, http.StatusOK, store.Records())
 	case http.MethodPost:
 		var record health.Record
 		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+			writeError(w, http.StatusBadRequest, "无效请求")
 			return
 		}
 		saved, err := store.Add(record)
@@ -464,62 +334,24 @@ func (s *apiServer) records(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *apiServer) recordsXLSX(w http.ResponseWriter, r *http.Request) {
+func (s *apiServerReal) exportXLSX(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	store := s.store
 	s.mu.RUnlock()
 
-	switch r.Method {
-	case http.MethodGet:
-		data, err := health.ExportXLSX(filterRecords(store.All(), r))
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "导出 XLSX 失败")
-			return
-		}
-		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		w.Header().Set("Content-Disposition", `attachment; filename="xueya-records.xlsx"`)
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(data); err != nil {
-			log.Printf("write xlsx: %v", err)
-		}
-	case http.MethodPost:
-		r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
-		if err := r.ParseMultipartForm(16 << 20); err != nil {
-			writeError(w, http.StatusBadRequest, "上传文件过大或格式不正确")
-			return
-		}
-		file, _, err := r.FormFile("file")
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "请选择 XLSX 文件")
-			return
-		}
-		defer file.Close()
-
-		data, err := io.ReadAll(io.LimitReader(file, 16<<20))
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "读取 XLSX 文件失败")
-			return
-		}
-		records, err := health.ImportXLSX(data)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		imported, skipped, err := store.ImportRecords(records)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]int{
-			"imported": len(imported),
-			"skipped":  skipped,
-		})
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
+	month := r.URL.Query().Get("month")
+	data, err := store.ExportXLSX(month)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "生成 Excel 失败")
+		return
 	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="xueya_export.xlsx"`)
+	w.Write(data)
 }
 
-func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
+func (s *apiServerReal) recordByID(w http.ResponseWriter, r *http.Request) {
 	id := recordIDFromPath(r.URL.Path)
 	if id == "" {
 		writeError(w, http.StatusNotFound, "记录不存在")
@@ -540,7 +372,7 @@ func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var record health.Record
 		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-			writeError(w, http.StatusBadRequest, "请求数据不是有效 JSON")
+			writeError(w, http.StatusBadRequest, "无效请求")
 			return
 		}
 		record.ID = id
@@ -555,19 +387,7 @@ func (s *apiServer) recordByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func recordIDFromPath(path string) string {
-	for _, prefix := range []string{"/api/records/", "/_xueya/records/"} {
-		if strings.HasPrefix(path, prefix) {
-			return strings.TrimSpace(path[len(prefix):])
-		}
-	}
-	if index := strings.LastIndex(path, "/"); index >= 0 && index < len(path)-1 {
-		return strings.TrimSpace(path[index+1:])
-	}
-	return ""
-}
-
-func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
+func (s *apiServerReal) recognize(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "不支持的方法")
 		return
@@ -613,6 +433,10 @@ func (s *apiServer) recognize(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"records": result})
 }
 
+func (s *apiServerReal) callVisionAPI(imageDataURL string) ([]map[string]any, error) {
+	s.mu.RLock()
+	apiURL := s.cfg.VisionURL
+	apiKey := s.cfg.VisionKey
 	visionModel := s.cfg.VisionModel
 	s.mu.RUnlock()
 
@@ -752,40 +576,9 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("write response: %v", err)
-	}
+	json.NewEncoder(w).Encode(value)
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
-}
-
-func filterRecords(records []health.Record, r *http.Request) []health.Record {
-	query := r.URL.Query()
-	month := query.Get("month")
-	date := query.Get("date")
-	segment := query.Get("segment")
-	if month == "" && date == "" && (segment == "" || segment == "all") {
-		return records
-	}
-
-	filtered := make([]health.Record, 0, len(records))
-	for _, record := range records {
-		if month != "" && !hasPrefix(record.Date, month) {
-			continue
-		}
-		if date != "" && record.Date != date {
-			continue
-		}
-		if segment != "" && segment != "all" && record.Segment != segment {
-			continue
-		}
-		filtered = append(filtered, record)
-	}
-	return filtered
-}
-
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
