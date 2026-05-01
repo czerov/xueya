@@ -34,7 +34,7 @@ type apiServer struct {
 	store    *health.Store
 	cfg      health.Config
 	cfgPath  string
-	mu       sync.RUnlocker
+	mu       sync.RWMutex
 	sessions map[string]time.Time
 }
 
@@ -316,7 +316,7 @@ func (s *apiServerReal) records(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, store.Records())
+		writeJSON(w, http.StatusOK, store.All())
 	case http.MethodPost:
 		var record health.Record
 		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
@@ -340,7 +340,7 @@ func (s *apiServerReal) exportXLSX(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	month := r.URL.Query().Get("month")
-	data, err := store.ExportXLSX(month)
+	data, err := health.ExportXLSX(store.All())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "生成 Excel 失败")
 		return
@@ -582,3 +582,16 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
+
+func recordIDFromPath(path string) string {
+	for _, prefix := range []string{"/api/records/", "/_xueya/records/"} {
+		if strings.HasPrefix(path, prefix) {
+			return strings.TrimSpace(path[len(prefix):])
+		}
+	}
+	if index := strings.LastIndex(path, "/"); index >= 0 && index < len(path)-1 {
+		return strings.TrimSpace(path[index+1:])
+	}
+	return ""
+}
+
